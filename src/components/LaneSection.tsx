@@ -1,3 +1,4 @@
+import type { DragEvent } from 'react'
 import { getLaneName } from '../lib/gameData'
 import type { Lane, LaneSummary, UnitOption } from '../types/lonestar'
 
@@ -8,6 +9,12 @@ type LaneSectionProps = {
   unitOptions: UnitOption[]
   onClearCell: (laneIndex: number, cellIndex: number) => void
   onConfigureCell: (laneIndex: number, cellIndex: number) => void
+  onMoveCell: (
+    fromLaneIndex: number,
+    fromCellIndex: number,
+    toLaneIndex: number,
+    toCellIndex: number,
+  ) => void
 }
 
 export function LaneSection({
@@ -17,7 +24,26 @@ export function LaneSection({
   unitOptions,
   onClearCell,
   onConfigureCell,
+  onMoveCell,
 }: LaneSectionProps) {
+  function handleDrop(
+    event: DragEvent<HTMLDivElement>,
+    toLaneIndex: number,
+    toCellIndex: number,
+  ) {
+    event.preventDefault()
+    const [fromLaneIndex, fromCellIndex] = event.dataTransfer
+      .getData('text/plain')
+      .split(':')
+      .map(Number)
+
+    if (Number.isNaN(fromLaneIndex) || Number.isNaN(fromCellIndex)) {
+      return
+    }
+
+    onMoveCell(fromLaneIndex, fromCellIndex, toLaneIndex, toCellIndex)
+  }
+
   return (
     <section className="panel">
       <div className="section-heading">
@@ -36,22 +62,48 @@ export function LaneSection({
             </div>
             <div className="lane-cells">
               {lane.cells.map((cell, cellIndex) => (
-                <button
+                <div
                   className={cell ? 'lane-cell filled' : 'lane-cell'}
+                  draggable={Boolean(cell)}
                   key={`${laneIndex}-${cellIndex}`}
-                  type="button"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragStart={(event) => {
+                    if (!cell) {
+                      return
+                    }
+
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', `${laneIndex}:${cellIndex}`)
+                  }}
+                  onDrop={(event) => handleDrop(event, laneIndex, cellIndex)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onConfigureCell(laneIndex, cellIndex)
+                    }
+                  }}
                   onClick={() => onConfigureCell(laneIndex, cellIndex)}
-                  disabled={unitOptions.length === 0}
+                  role="button"
+                  tabIndex={unitOptions.length === 0 ? -1 : 0}
                 >
                   {cell ? (
                     <>
-                      <span>{cell.name}</span>
-                      <strong>{cell.power}</strong>
+                      <span className="unit-name">{cell.name}</span>
+                      <span className="unit-slots" aria-label={`Slots: ${cell.slots.join(', ')}`}>
+                        {cell.slots.map((slot, slotIndex) => (
+                          <span
+                            aria-hidden="true"
+                            className={`slot-dot ${slot}`}
+                            key={`${slot}-${slotIndex}`}
+                          />
+                        ))}
+                      </span>
+                      <strong>Power {cell.power}</strong>
                     </>
                   ) : (
                     <span>Empty</span>
                   )}
-                </button>
+                </div>
               ))}
             </div>
             {lane.cells.some(Boolean) && (

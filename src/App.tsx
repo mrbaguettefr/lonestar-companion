@@ -5,7 +5,13 @@ import { EnergySection } from './components/EnergySection'
 import { GoalsSection } from './components/GoalsSection'
 import { LaneSection } from './components/LaneSection'
 import { SolutionPanel } from './components/SolutionPanel'
-import { createEmptyLanes, energyColors, initialEnergies, initialLanes } from './lib/gameData'
+import {
+  createEmptyLanes,
+  energyColors,
+  initialEnergies,
+  initialLanes,
+  maxLaneColumns,
+} from './lib/gameData'
 import { clampNumber } from './lib/numbers'
 import { solveLaneAssignments, summarizeLanes } from './lib/solver'
 import type { Energy, Lane, LaneUnit, LonestarData, PlayerShip, UnitOption } from './types/lonestar'
@@ -36,14 +42,21 @@ function App() {
     () => ships.find((ship) => String(ship.id) === selectedShipId) ?? null,
     [selectedShipId, ships],
   )
+  const selectedUnitOptions = useMemo(
+    () =>
+      selectedShip
+        ? unitOptions.filter((unit) => unit.shipKeys?.includes(selectedShip.key))
+        : unitOptions,
+    [selectedShip, unitOptions],
+  )
 
   useEffect(() => {
     let isMounted = true
 
-    fetch('/lonestar_data2.json')
+    fetch('/lonestar_data.json')
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Unable to load lonestar_data2.json: ${response.status}`)
+          throw new Error(`Unable to load lonestar_data.json: ${response.status}`)
         }
 
         return response.json() as Promise<LonestarData>
@@ -56,8 +69,26 @@ function App() {
         setShips(data.ships.players)
         setUnitOptions(
           data.units
-            .map((unit) => ({ id: unit.id, name: unit.base_name }))
-            .sort((first, second) => first.name.localeCompare(second.name)),
+            .flatMap((unit) =>
+              Object.values(unit.levels)
+                .sort((first, second) => first.level - second.level)
+                .map((level) => ({
+                  key: `${unit.id}:${level.level}`,
+                  unitId: unit.id,
+                  level: level.level,
+                  name: level.name,
+                  slots: level.slots,
+                  shipKeys: unit.ships
+                    .filter((ship) => ship.kind === 'player')
+                    .map((ship) => ship.ship),
+                })),
+            )
+            .filter((unit) => unit.shipKeys.length > 0)
+            .sort((first, second) => {
+              const nameCompare = first.name.localeCompare(second.name)
+
+              return nameCompare === 0 ? first.unitId - second.unitId : nameCompare
+            }),
         )
         setDataStatus('ready')
       })
@@ -82,13 +113,13 @@ function App() {
     setEditingCell(null)
 
     const ship = ships.find((candidate) => String(candidate.id) === shipId)
-    setLanes(ship ? createEmptyLanes(ship.lanes, ship.columns) : initialLanes)
+    setLanes(ship ? createShipLanes(ship, unitOptions) : initialLanes)
   }
 
   function openCellDialog(laneIndex: number, cellIndex: number) {
     const existing = lanes[laneIndex]?.cells[cellIndex] ?? null
     setEditingCell({ laneIndex, cellIndex })
-    setDraftUnitId(existing ? String(existing.unitId) : String(unitOptions[0]?.id ?? ''))
+    setDraftUnitId(existing ? `${existing.unitId}:${existing.level}` : (selectedUnitOptions[0]?.key ?? ''))
     setDraftPower(existing?.power ?? 0)
   }
 
@@ -97,7 +128,7 @@ function App() {
       return
     }
 
-    const unit = unitOptions.find((option) => String(option.id) === draftUnitId)
+    const unit = selectedUnitOptions.find((option) => option.key === draftUnitId)
     if (!unit) {
       return
     }
@@ -111,9 +142,11 @@ function App() {
               cells: lane.cells.map((cell, innerIndex) =>
                 innerIndex === editingCell.cellIndex
                   ? ({
-                      unitId: unit.id,
+                      unitId: unit.unitId,
+                      level: unit.level,
                       name: unit.name,
                       power: clampNumber(draftPower),
+                      slots: unit.slots,
                     } satisfies LaneUnit)
                   : cell,
               ),
@@ -138,6 +171,41 @@ function App() {
           : lane,
       ),
     )
+  }
+
+  function moveCell(
+    fromLaneIndex: number,
+    fromCellIndex: number,
+    toLaneIndex: number,
+    toCellIndex: number,
+  ) {
+    if (fromLaneIndex === toLaneIndex && fromCellIndex === toCellIndex) {
+      return
+    }
+
+    markInputChanged()
+    setLanes((current) => {
+      const next = current.map((lane) => ({
+        ...lane,
+        cells: [...lane.cells],
+      }))
+
+      if (!next[fromLaneIndex]?.cells[fromCellIndex] || !next[toLaneIndex]?.cells) {
+        return current
+      }
+
+      if (toCellIndex < 0 || toCellIndex >= next[toLaneIndex].cells.length) {
+        return current
+      }
+
+      const fromCell = next[fromLaneIndex].cells[fromCellIndex]
+      const toCell = next[toLaneIndex].cells[toCellIndex]
+
+      next[toLaneIndex].cells[toCellIndex] = fromCell ?? null
+      next[fromLaneIndex].cells[fromCellIndex] = toCell
+
+      return next
+    })
   }
 
   function updateGoal(laneIndex: number, value: number) {
@@ -203,9 +271,10 @@ function App() {
             lanes={lanes}
             laneSummaries={laneSummaries}
             selectedShipName={selectedShip.name}
-            unitOptions={unitOptions}
+            unitOptions={selectedUnitOptions}
             onClearCell={clearCell}
             onConfigureCell={openCellDialog}
+            onMoveCell={moveCell}
           />
           <EnergySection
             energies={energies}
@@ -243,8 +312,8 @@ function App() {
             <label>
               <span>Unit</span>
               <select value={draftUnitId} onChange={(event) => setDraftUnitId(event.target.value)}>
-                {unitOptions.map((unit) => (
-                  <option key={unit.id} value={unit.id}>
+                {selectedUnitOptions.map((unit) => (
+                  <option key={unit.key} value={unit.key}>
                     {unit.name}
                   </option>
                 ))}
@@ -272,6 +341,44 @@ function App() {
       )}
     </main>
   )
+}
+
+function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
+  const lanes = createEmptyLanes(ship.lanes, ship.columns)
+
+  for (const startingUnit of ship.starting_units) {
+    const laneIndex = startingUnit.lane - 1
+    const cellIndex = startingUnit.column - 1
+
+    if (
+      laneIndex < 0 ||
+      laneIndex >= lanes.length ||
+      cellIndex < 0 ||
+      cellIndex >= Math.min(ship.columns, maxLaneColumns)
+    ) {
+      continue
+    }
+
+    const option =
+      unitOptions.find(
+        (unit) => unit.unitId === startingUnit.unit_id && unit.level === startingUnit.level,
+      ) ??
+      unitOptions.find((unit) => unit.unitId === startingUnit.unit_id)
+
+    if (!option) {
+      continue
+    }
+
+    lanes[laneIndex].cells[cellIndex] = {
+      unitId: option.unitId,
+      level: option.level,
+      name: option.name,
+      power: 0,
+      slots: option.slots,
+    }
+  }
+
+  return lanes
 }
 
 export default App

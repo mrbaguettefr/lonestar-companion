@@ -1,11 +1,9 @@
 import type { Energy, Lane } from '../types/lonestar'
 
-export const laneNames = ['Top lane', 'Middle lane', 'Bottom lane']
-
 export const maxLaneColumns = 3
 
 export function getLaneName(laneIndex: number) {
-  return laneNames[laneIndex] ?? `Lane ${laneIndex + 1}`
+  return `Lane ${laneIndex + 1}`
 }
 
 export function createEmptyLanes(laneCount: number, columnCount = maxLaneColumns): Lane[] {
@@ -17,12 +15,12 @@ export function createEmptyLanes(laneCount: number, columnCount = maxLaneColumns
   }))
 }
 
-export const energyColors = ['Red', 'Blue', 'Yellow', 'Green', 'Purple', 'White']
+export const energyColors = ['white', 'blue', 'orange']
 
 export const initialLanes: Lane[] = []
 
 export const initialEnergies: Energy[] = [
-  { id: 1, color: 'Red', count: 2 },
-  { id: 2, color: 'Blue', count: 2 },
-  { id: 3, color: 'Yellow', count: 1 },
+  { id: 1, color: 'white', count: 1 },
+  { id: 2, color: 'blue', count: 1 },
+  { id: 3, color: 'orange', count: 1 },
 ]

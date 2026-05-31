@@ -172,8 +172,10 @@
   border-radius: 8px;
   background: var(--field);
   color: var(--muted);
+  cursor: pointer;
   padding: 10px;
   text-align: left;
+  user-select: none;
 }
 
 .lane-cell.filled {
@@ -181,6 +183,15 @@
   justify-items: stretch;
   border-style: solid;
   color: var(--text-strong);
+}
+
+.lane-cell.filled:active {
+  cursor: grabbing;
+}
+
+.lane-cell:focus-visible {
+  outline: 2px solid #2f6fed;
+  outline-offset: 2px;
 }
 
 .lane-cell span {
@@ -191,14 +202,40 @@
 
 .lane-cell strong {
   display: inline-grid;
-  width: 34px;
+  min-width: 72px;
   height: 28px;
   place-items: center;
   justify-self: end;
   border-radius: 7px;
   background: var(--ink);
   color: var(--paper);
-  font-size: 15px;
+  font-size: 13px;
+}
+
+.unit-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.slot-dot {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.slot-dot.white {
+  background: #ffffff;
+}
+
+.slot-dot.blue {
+  background: #3478d8;
+}
+
+.slot-dot.orange {
+  background: #f08a30;
 }
 
 .cell-actions {
@@ -325,6 +362,10 @@ button {
 
 .swatch.white {
   background: #ffffff;
+}
+
+.swatch.orange {
+  background: #f08a30;
 }
 
 .solution-panel {

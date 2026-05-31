@@ -5,8 +5,10 @@ export type Lane = {
 
 export type LaneUnit = {
   unitId: number
+  level: number
   name: string
   power: number
+  slots: string[]
 }
 
 export type Energy = {
@@ -35,12 +37,24 @@ export type PlayerShip = {
   move: number
   lanes: number
   columns: number
+  starting_units: StartingUnit[]
   in_game: boolean | null
 }
 
+export type StartingUnit = {
+  unit_id: number
+  level: number
+  lane: number
+  column: number
+}
+
 export type UnitOption = {
-  id: number
+  key: string
+  unitId: number
+  level: number
   name: string
+  slots: string[]
+  shipKeys: string[]
 }
 
 export type LonestarData = {
@@ -51,5 +65,17 @@ export type LonestarData = {
     id: number
     base_name: string
     upgraded_name?: string
+    ships: Array<{
+      kind: string
+      ship: string
+    }>
+    levels: Record<
+      string,
+      {
+        level: number
+        name: string
+        slots: string[]
+      }
+    >
   }>
 }
