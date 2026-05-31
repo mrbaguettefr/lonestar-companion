@@ -27,6 +27,13 @@ export const initialEnergies: Energy[] = [
   { id: 3, color: 'orange', count: 1, point: 3 },
 ]
 
+export function canDropEnergyInSlot(energyColor: string, slotColor: string): boolean {
+  if (slotColor === 'white') return true
+  if (slotColor === 'blue') return energyColor === 'blue' || energyColor === 'orange'
+  if (slotColor === 'orange') return energyColor === 'orange'
+  return false
+}
+
 export function extractStaticPower(rawProperties: string): number {
   const match = rawProperties.match(/;PA:(\d+)/)
   return match ? Number(match[1]) : 0

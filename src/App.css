@@ -218,14 +218,36 @@
 }
 
 .slot-dot {
-  width: 16px;
-  height: 16px;
+  position: relative;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--border);
   border-radius: 50%;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.slot-dot.slot-loaded {
+  cursor: grab;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+
+.slot-dot.slot-loaded:active {
+  cursor: grabbing;
+}
+
+.slot-dot.slot-drag-over {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  opacity: 0.85;
+}
+
+.slot-dot.slot-empty {
+  opacity: 0.55;
 }
 
 .slot-dot.white {
-  background: #ffffff;
+  background: #e8e8e8;
 }
 
 .slot-dot.blue {
@@ -234,6 +256,25 @@
 
 .slot-dot.orange {
   background: #f08a30;
+}
+
+.slot-point {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 3px rgba(0,0,0,0.8);
+  pointer-events: none;
+  user-select: none;
+}
+
+.slot-dot.white .slot-point {
+  color: #333;
+  text-shadow: none;
 }
 
 .unit-effect-label {
@@ -268,8 +309,18 @@
 }
 
 .energy-row {
-  grid-template-columns: minmax(130px, 1fr) 100px 28px 34px;
-  max-width: 520px;
+  grid-template-columns: minmax(130px, 1fr) 80px 60px 28px 34px;
+  max-width: 560px;
+  cursor: grab;
+}
+
+.energy-row:active {
+  cursor: grabbing;
+}
+
+.energy-drop-target {
+  outline: 2px dashed var(--primary, #4f8ef0);
+  outline-offset: -4px;
 }
 
 .goal-row {

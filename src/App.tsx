@@ -17,8 +17,8 @@ import {
 import { Input } from './components/ui/input'
 import { Label } from './components/ui/label'
 import {
+  canDropEnergyInSlot,
   createEmptyLanes,
-  energyColors,
   energyPoints,
   extractStaticPower,
   initialEnergies,
@@ -29,6 +29,7 @@ import { clampNumber } from './lib/numbers'
 import { buildBattleContext, solveLaneAssignments, summarizeLanes } from './lib/solver'
 import { IMPLEMENTED_SKILLS, formatEffect } from './lib/effects'
 import type {
+  DragPayload,
   Energy,
   Lane,
   LaneUnit,
@@ -56,10 +57,7 @@ function App() {
   const [draftManualOverride, setDraftManualOverride] = useState<number | null>(null)
   const [dataStatus, setDataStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
-  const battleContext = useMemo(
-    () => buildBattleContext(energies),
-    [energies],
-  )
+  const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const solution = useMemo(
     () => solveLaneAssignments(energies, laneSummaries),
@@ -82,23 +80,18 @@ function App() {
 
     fetch('/lonestar_data.json')
       .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Unable to load lonestar_data.json: ${response.status}`)
-        }
-
+        if (!response.ok) throw new Error(`Unable to load lonestar_data.json: ${response.status}`)
         return response.json() as Promise<LonestarData>
       })
       .then((data) => {
-        if (!isMounted) {
-          return
-        }
+        if (!isMounted) return
 
         setShips(data.ships.players)
         setUnitOptions(
           data.units
             .flatMap((unit) =>
               unit.levels
-                .sort((first, second) => first.level - second.level)
+                .sort((a, b) => a.level - b.level)
                 .map((level) => ({
                   key: `${unit.id}:${level.level}`,
                   unitId: unit.id,
@@ -116,18 +109,15 @@ function App() {
                 })),
             )
             .filter((unit) => unit.shipKeys.length > 0)
-            .sort((first, second) => {
-              const nameCompare = first.name.localeCompare(second.name)
-
-              return nameCompare === 0 ? first.unitId - second.unitId : nameCompare
+            .sort((a, b) => {
+              const nameCompare = a.name.localeCompare(b.name)
+              return nameCompare === 0 ? a.unitId - b.unitId : nameCompare
             }),
         )
         setDataStatus('ready')
       })
       .catch(() => {
-        if (isMounted) {
-          setDataStatus('error')
-        }
+        if (isMounted) setDataStatus('error')
       })
 
     return () => {
@@ -143,7 +133,6 @@ function App() {
     markInputChanged()
     setSelectedShipId(shipId)
     setEditingCell(null)
-
     const ship = ships.find((candidate) => String(candidate.id) === shipId)
     setLanes(ship ? createShipLanes(ship, unitOptions) : initialLanes)
   }
@@ -151,12 +140,10 @@ function App() {
   function openCellDialog(laneIndex: number, cellIndex: number) {
     const existing = lanes[laneIndex]?.cells[cellIndex] ?? null
     setEditingCell({ laneIndex, cellIndex })
-
     const defaultUnitKey = existing
       ? `${existing.unitId}:${existing.level}`
       : (selectedUnitOptions[0]?.key ?? '')
     setDraftUnitId(defaultUnitKey)
-
     if (existing) {
       setDraftLoadedEnergy([...existing.loadedEnergy])
       setDraftManualOverride(existing.manualPowerOverride)
@@ -175,14 +162,9 @@ function App() {
   }
 
   function saveCell() {
-    if (!editingCell) {
-      return
-    }
-
+    if (!editingCell) return
     const unit = selectedUnitOptions.find((option) => option.key === draftUnitId)
-    if (!unit) {
-      return
-    }
+    if (!unit) return
 
     markInputChanged()
     setLanes((current) =>
@@ -215,16 +197,19 @@ function App() {
   }
 
   function clearCell(laneIndex: number, cellIndex: number) {
+    // Return all loaded energy in that cell back to hand before clearing
+    const cell = lanes[laneIndex]?.cells[cellIndex]
+    if (cell) {
+      const toReturn = cell.loadedEnergy.filter((e): e is LoadedEnergy => e !== null)
+      if (toReturn.length > 0) {
+        returnMultipleEnergiesToHand(toReturn)
+      }
+    }
     markInputChanged()
     setLanes((current) =>
       current.map((lane, index) =>
         index === laneIndex
-          ? {
-              ...lane,
-              cells: lane.cells.map((cell, innerIndex) =>
-                innerIndex === cellIndex ? null : cell,
-              ),
-            }
+          ? { ...lane, cells: lane.cells.map((cell, innerIndex) => innerIndex === cellIndex ? null : cell) }
           : lane,
       ),
     )
@@ -236,24 +221,14 @@ function App() {
     toLaneIndex: number,
     toCellIndex: number,
   ) {
-    if (fromLaneIndex === toLaneIndex && fromCellIndex === toCellIndex) {
-      return
-    }
+    if (fromLaneIndex === toLaneIndex && fromCellIndex === toCellIndex) return
 
     markInputChanged()
     setLanes((current) => {
-      const next = current.map((lane) => ({
-        ...lane,
-        cells: [...lane.cells],
-      }))
+      const next = current.map((lane) => ({ ...lane, cells: [...lane.cells] }))
 
-      if (!next[fromLaneIndex]?.cells[fromCellIndex] || !next[toLaneIndex]?.cells) {
-        return current
-      }
-
-      if (toCellIndex < 0 || toCellIndex >= next[toLaneIndex].cells.length) {
-        return current
-      }
+      if (!next[fromLaneIndex]?.cells[fromCellIndex] || !next[toLaneIndex]?.cells) return current
+      if (toCellIndex < 0 || toCellIndex >= next[toLaneIndex].cells.length) return current
 
       const fromCell = next[fromLaneIndex].cells[fromCellIndex]
       const toCell = next[toLaneIndex].cells[toCellIndex]
@@ -274,11 +249,11 @@ function App() {
     )
   }
 
-  function addEnergy() {
+  function addEnergy(spec: { color: string; point: number; count: number }) {
     markInputChanged()
     setEnergies((current) => [
       ...current,
-      { id: Date.now(), color: energyColors[0], count: 1, point: 3 },
+      { id: Date.now(), color: spec.color, point: spec.point, count: spec.count },
     ])
   }
 
@@ -294,7 +269,140 @@ function App() {
     setEnergies((current) => current.filter((energy) => energy.id !== id))
   }
 
-  // Computed preview for the dialog
+  // ── Energy helpers ──────────────────────────────────────────────────────
+
+  function returnMultipleEnergiesToHand(toReturn: LoadedEnergy[]) {
+    setEnergies((current) => {
+      let updated = [...current]
+      for (const e of toReturn) {
+        const existing = updated.find((h) => h.color === e.color && h.point === e.point)
+        if (existing) {
+          updated = updated.map((h) => h.id === existing.id ? { ...h, count: h.count + 1 } : h)
+        } else {
+          updated = [...updated, { id: Date.now() + Math.random(), color: e.color, point: e.point, count: 1 }]
+        }
+      }
+      return updated
+    })
+  }
+
+  // Drop energy from hand or another slot onto a unit slot
+  function dropEnergyToSlot(payload: DragPayload, toLane: number, toCell: number, toSlot: number) {
+    if (payload.type === 'unit') return
+
+    const targetCell = lanes[toLane]?.cells[toCell]
+    if (!targetCell) return
+
+    const slotColor = targetCell.slots[toSlot]
+    if (!canDropEnergyInSlot(payload.color, slotColor)) return
+
+    markInputChanged()
+
+    const displaced = targetCell.loadedEnergy[toSlot]
+    const energyToLoad: LoadedEnergy = { color: payload.color, point: payload.point }
+
+    // Determine if displaced can go back to source slot (slot-to-slot swap)
+    let canSwapToSource = false
+    if (payload.type === 'energy-slot' && displaced) {
+      const sourceCell = lanes[payload.laneIndex]?.cells[payload.cellIndex]
+      const sourceSlotColor = sourceCell?.slots[payload.slotIndex]
+      canSwapToSource = Boolean(sourceSlotColor && canDropEnergyInSlot(displaced.color, sourceSlotColor))
+    }
+
+    setLanes((current) =>
+      current.map((lane, li) => ({
+        ...lane,
+        cells: lane.cells.map((cell, ci) => {
+          if (!cell) return cell
+
+          // Update target slot
+          if (li === toLane && ci === toCell) {
+            const newLoaded = [...cell.loadedEnergy]
+            newLoaded[toSlot] = energyToLoad
+            return { ...cell, loadedEnergy: newLoaded }
+          }
+
+          // Clear/swap source slot
+          if (
+            payload.type === 'energy-slot' &&
+            li === payload.laneIndex &&
+            ci === payload.cellIndex &&
+            !(li === toLane && ci === toCell)
+          ) {
+            const newLoaded = [...cell.loadedEnergy]
+            newLoaded[payload.slotIndex] = canSwapToSource ? (displaced ?? null) : null
+            return { ...cell, loadedEnergy: newLoaded }
+          }
+
+          return cell
+        }),
+      })),
+    )
+
+    setEnergies((current) => {
+      let updated = [...current]
+
+      if (payload.type === 'energy-hand') {
+        // Decrement source hand entry
+        updated = updated.map((e) =>
+          e.id === payload.energyId ? { ...e, count: e.count - 1 } : e,
+        )
+        updated = updated.filter((e) => e.count > 0)
+      }
+
+      // Return displaced energy to hand if it can't swap back to source slot
+      const needsReturn =
+        displaced &&
+        (payload.type === 'energy-hand' || (payload.type === 'energy-slot' && !canSwapToSource))
+
+      if (needsReturn) {
+        const existing = updated.find((e) => e.color === displaced.color && e.point === displaced.point)
+        if (existing) {
+          updated = updated.map((e) =>
+            e.id === existing.id ? { ...e, count: e.count + 1 } : e,
+          )
+        } else {
+          updated = [...updated, { id: Date.now() + 1, color: displaced.color, point: displaced.point, count: 1 }]
+        }
+      }
+
+      return updated
+    })
+  }
+
+  // Return energy from a unit slot back to the hand section
+  function dropEnergyToHand(payload: DragPayload) {
+    if (payload.type !== 'energy-slot') return
+    const { laneIndex, cellIndex, slotIndex, color, point } = payload
+
+    markInputChanged()
+
+    setLanes((current) =>
+      current.map((lane, li) =>
+        li === laneIndex
+          ? {
+              ...lane,
+              cells: lane.cells.map((cell, ci) =>
+                ci === cellIndex && cell
+                  ? { ...cell, loadedEnergy: cell.loadedEnergy.map((e, si) => si === slotIndex ? null : e) }
+                  : cell,
+              ),
+            }
+          : lane,
+      ),
+    )
+
+    setEnergies((current) => {
+      const existing = current.find((e) => e.color === color && e.point === point)
+      if (existing) {
+        return current.map((e) => e.id === existing.id ? { ...e, count: e.count + 1 } : e)
+      }
+      return [...current, { id: Date.now(), color, point, count: 1 }]
+    })
+  }
+
+  // ── Dialog computed values ──────────────────────────────────────────────
+
   const draftUnit = selectedUnitOptions.find((o) => o.key === draftUnitId)
   const draftLaneUnit: LaneUnit | null = draftUnit
     ? {
@@ -354,12 +462,14 @@ function App() {
             onClearCell={clearCell}
             onConfigureCell={openCellDialog}
             onMoveCell={moveCell}
+            onDropEnergyToSlot={dropEnergyToSlot}
           />
           <EnergySection
             energies={energies}
             onAddEnergy={addEnergy}
             onRemoveEnergy={removeEnergy}
             onUpdateEnergy={updateEnergy}
+            onDropEnergyToHand={dropEnergyToHand}
           />
           <GoalsSection lanes={lanes} laneSummaries={laneSummaries} onUpdateGoal={updateGoal} />
           <SolutionPanel
@@ -375,6 +485,7 @@ function App() {
         </section>
       )}
 
+      {/* Unit configure dialog */}
       <Dialog open={Boolean(editingCell)} onOpenChange={(isOpen) => !isOpen && setEditingCell(null)}>
         <DialogContent>
           <form
@@ -386,9 +497,7 @@ function App() {
           >
             <DialogHeader>
               <DialogTitle>Configure unit</DialogTitle>
-              <DialogDescription>
-                Choose a unit and load energy into its slots.
-              </DialogDescription>
+              <DialogDescription>Choose a unit and load energy into its slots.</DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-2">
@@ -441,7 +550,10 @@ function App() {
                         <option value="">Not loaded</option>
                         {matchingEnergies.length > 0
                           ? matchingEnergies.map((e) => (
-                              <option key={`${e.color}:${e.point}`} value={`${e.color}:${e.point}`}>
+                              <option
+                                key={`${e.color}:${e.point}`}
+                                value={`${e.color}:${e.point}`}
+                              >
                                 {e.color} {e.point}pt (×{e.count} in hand)
                               </option>
                             ))
@@ -461,13 +573,11 @@ function App() {
               <div className="text-sm font-medium">
                 Computed strength:{' '}
                 <strong>
-                  {(() => {
-                    if (draftManualOverride !== null) return draftManualOverride
-                    // Quick preview without full lane context
-                    const loaded = draftLoadedEnergy.filter((e): e is LoadedEnergy => e !== null)
-                    const base = loaded.reduce((acc, e) => acc + e.point, 0) + draftLaneUnit.staticPower
-                    return base
-                  })()}
+                  {draftManualOverride !== null
+                    ? draftManualOverride
+                    : draftLoadedEnergy
+                        .filter((e): e is LoadedEnergy => e !== null)
+                        .reduce((acc, e) => acc + e.point, 0) + draftLaneUnit.staticPower}
                 </strong>
                 {draftUnit.staticPower > 0 && (
                   <span className="text-muted-foreground ml-1">(+{draftUnit.staticPower} PA)</span>
@@ -527,12 +637,9 @@ function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
     const option =
       unitOptions.find(
         (unit) => unit.unitId === startingUnit.unit_id && unit.level === startingUnit.level,
-      ) ??
-      unitOptions.find((unit) => unit.unitId === startingUnit.unit_id)
+      ) ?? unitOptions.find((unit) => unit.unitId === startingUnit.unit_id)
 
-    if (!option) {
-      continue
-    }
+    if (!option) continue
 
     lanes[laneIndex].cells[cellIndex] = {
       unitId: option.unitId,

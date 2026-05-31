@@ -1,6 +1,6 @@
-import type { DragEvent } from 'react'
-import { getLaneName } from '../lib/gameData'
-import type { Lane, LaneSummary, UnitOption } from '../types/lonestar'
+import { type DragEvent, useState } from 'react'
+import { getLaneName, canDropEnergyInSlot } from '../lib/gameData'
+import type { DragPayload, Lane, LaneSummary, UnitOption } from '../types/lonestar'
 import { Button } from './ui/button'
 
 type LaneSectionProps = {
@@ -16,6 +16,22 @@ type LaneSectionProps = {
     toLaneIndex: number,
     toCellIndex: number,
   ) => void
+  onDropEnergyToSlot: (
+    payload: DragPayload,
+    toLane: number,
+    toCell: number,
+    toSlot: number,
+  ) => void
+}
+
+function parseDragPayload(data: string): DragPayload | null {
+  try {
+    const parsed = JSON.parse(data) as DragPayload
+    if (parsed && typeof parsed.type === 'string') return parsed
+    return null
+  } catch {
+    return null
+  }
 }
 
 export function LaneSection({
@@ -26,23 +42,37 @@ export function LaneSection({
   onClearCell,
   onConfigureCell,
   onMoveCell,
+  onDropEnergyToSlot,
 }: LaneSectionProps) {
-  function handleDrop(
-    event: DragEvent<HTMLDivElement>,
-    toLaneIndex: number,
-    toCellIndex: number,
+  const [slotDragOver, setSlotDragOver] = useState<string | null>(null)
+
+  function handleCellDrop(event: DragEvent<HTMLDivElement>, toLaneIndex: number, toCellIndex: number) {
+    event.preventDefault()
+    const payload = parseDragPayload(event.dataTransfer.getData('text/plain'))
+    if (!payload) return
+
+    if (payload.type === 'unit') {
+      onMoveCell(payload.laneIndex, payload.cellIndex, toLaneIndex, toCellIndex)
+    }
+    // energy drops are handled at the slot level
+  }
+
+  function handleSlotDrop(
+    event: DragEvent<HTMLSpanElement>,
+    laneIndex: number,
+    cellIndex: number,
+    slotIndex: number,
+    slotColor: string,
   ) {
     event.preventDefault()
-    const [fromLaneIndex, fromCellIndex] = event.dataTransfer
-      .getData('text/plain')
-      .split(':')
-      .map(Number)
+    event.stopPropagation()
+    setSlotDragOver(null)
 
-    if (Number.isNaN(fromLaneIndex) || Number.isNaN(fromCellIndex)) {
-      return
-    }
+    const payload = parseDragPayload(event.dataTransfer.getData('text/plain'))
+    if (!payload || payload.type === 'unit') return
+    if (!canDropEnergyInSlot(payload.color, slotColor)) return
 
-    onMoveCell(fromLaneIndex, fromCellIndex, toLaneIndex, toCellIndex)
+    onDropEnergyToSlot(payload, laneIndex, cellIndex, slotIndex)
   }
 
   return (
@@ -75,14 +105,14 @@ export function LaneSection({
                       key={`${laneIndex}-${cellIndex}`}
                       onDragOver={(event) => event.preventDefault()}
                       onDragStart={(event) => {
-                        if (!cell) {
-                          return
-                        }
-
+                        if (!cell) return
                         event.dataTransfer.effectAllowed = 'move'
-                        event.dataTransfer.setData('text/plain', `${laneIndex}:${cellIndex}`)
+                        event.dataTransfer.setData(
+                          'text/plain',
+                          JSON.stringify({ type: 'unit', laneIndex, cellIndex } satisfies DragPayload),
+                        )
                       }}
-                      onDrop={(event) => handleDrop(event, laneIndex, cellIndex)}
+                      onDrop={(event) => handleCellDrop(event, laneIndex, cellIndex)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault()
@@ -96,14 +126,79 @@ export function LaneSection({
                       {cell ? (
                         <>
                           <span className="unit-name">{cell.name}</span>
-                          <span className="unit-slots" aria-label={`Slots: ${cell.slots.join(', ')}`}>
-                            {cell.slots.map((slot, slotIndex) => (
-                              <span
-                                aria-hidden="true"
-                                className={`slot-dot ${slot}`}
-                                key={`${slot}-${slotIndex}`}
-                              />
-                            ))}
+                          <span
+                            className="unit-slots"
+                            aria-label={`Slots: ${cell.slots.join(', ')}`}
+                          >
+                            {cell.slots.map((slot, slotIndex) => {
+                              const loaded = cell.loadedEnergy[slotIndex] ?? null
+                              const slotKey = `${laneIndex}-${cellIndex}-${slotIndex}`
+                              const isDragOver = slotDragOver === slotKey
+
+                              return (
+                                <span
+                                  key={slotKey}
+                                  className={[
+                                    'slot-dot',
+                                    slot,
+                                    loaded ? 'slot-loaded' : 'slot-empty',
+                                    isDragOver ? 'slot-drag-over' : '',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ')}
+                                  title={
+                                    loaded
+                                      ? `${loaded.color} ${loaded.point}pt — drag to move`
+                                      : `${slot} slot (empty) — drop energy here`
+                                  }
+                                  draggable={Boolean(loaded)}
+                                  onDragStart={(event) => {
+                                    event.stopPropagation() // prevent unit drag
+                                    if (!loaded) return
+                                    event.dataTransfer.effectAllowed = 'move'
+                                    event.dataTransfer.setData(
+                                      'text/plain',
+                                      JSON.stringify({
+                                        type: 'energy-slot',
+                                        laneIndex,
+                                        cellIndex,
+                                        slotIndex,
+                                        color: loaded.color,
+                                        point: loaded.point,
+                                      } satisfies DragPayload),
+                                    )
+                                  }}
+                                  onDragEnd={() => setSlotDragOver(null)}
+                                  onDragOver={(event) => {
+                                    event.stopPropagation()
+                                    // Peek at drag data to check compatibility
+                                    // We can't read data during dragover but we stored it in dataTransfer types
+                                    // Use a permissive accept during dragover; real check at drop
+                                    event.preventDefault()
+                                    setSlotDragOver(slotKey)
+                                  }}
+                                  onDragLeave={(event) => {
+                                    event.stopPropagation()
+                                    setSlotDragOver((prev) => (prev === slotKey ? null : prev))
+                                  }}
+                                  onDrop={(event) =>
+                                    handleSlotDrop(event, laneIndex, cellIndex, slotIndex, slot)
+                                  }
+                                  onClick={(event) => event.stopPropagation()}
+                                  aria-label={
+                                    loaded
+                                      ? `${slot} slot loaded with ${loaded.color} ${loaded.point}pt`
+                                      : `${slot} slot empty`
+                                  }
+                                >
+                                  {loaded && (
+                                    <span className="slot-point" aria-hidden="true">
+                                      {loaded.point}
+                                    </span>
+                                  )}
+                                </span>
+                              )
+                            })}
                           </span>
                           <strong>
                             {breakdown?.isManualOverride ? 'Manual' : 'Strength'}{' '}

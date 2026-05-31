@@ -3,6 +3,11 @@ export type LoadedEnergy = {
   point: number
 }
 
+export type DragPayload =
+  | { type: 'unit'; laneIndex: number; cellIndex: number }
+  | { type: 'energy-hand'; energyId: number; color: string; point: number }
+  | { type: 'energy-slot'; laneIndex: number; cellIndex: number; slotIndex: number; color: string; point: number }
+
 export type UnitStrengthBreakdown = {
   cellIndex: number
   basePoints: number
