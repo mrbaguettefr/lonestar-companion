@@ -55,76 +55,90 @@ export function LaneSection({
         </p>
       </div>
       <div className="lane-table">
-        {lanes.map((lane, laneIndex) => (
-          <article className="lane-row-card" key={getLaneName(laneIndex)}>
-            <div className="lane-header">
-              <h3>{getLaneName(laneIndex)}</h3>
-              <strong>{laneSummaries[laneIndex].strength}</strong>
-            </div>
-            <div className="lane-cells">
-              {lane.cells.map((cell, cellIndex) => (
-                <div
-                  className={cell ? 'lane-cell filled' : 'lane-cell'}
-                  draggable={Boolean(cell)}
-                  key={`${laneIndex}-${cellIndex}`}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDragStart={(event) => {
-                    if (!cell) {
-                      return
-                    }
+        {lanes.map((lane, laneIndex) => {
+          const summary = laneSummaries[laneIndex]
 
-                    event.dataTransfer.effectAllowed = 'move'
-                    event.dataTransfer.setData('text/plain', `${laneIndex}:${cellIndex}`)
-                  }}
-                  onDrop={(event) => handleDrop(event, laneIndex, cellIndex)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onConfigureCell(laneIndex, cellIndex)
-                    }
-                  }}
-                  onClick={() => onConfigureCell(laneIndex, cellIndex)}
-                  role="button"
-                  tabIndex={unitOptions.length === 0 ? -1 : 0}
-                >
-                  {cell ? (
-                    <>
-                      <span className="unit-name">{cell.name}</span>
-                      <span className="unit-slots" aria-label={`Slots: ${cell.slots.join(', ')}`}>
-                        {cell.slots.map((slot, slotIndex) => (
-                          <span
-                            aria-hidden="true"
-                            className={`slot-dot ${slot}`}
-                            key={`${slot}-${slotIndex}`}
-                          />
-                        ))}
-                      </span>
-                      <strong>Power {cell.power}</strong>
-                    </>
-                  ) : (
-                    <span>Empty</span>
+          return (
+            <article className="lane-row-card" key={getLaneName(laneIndex)}>
+              <div className="lane-header">
+                <h3>{getLaneName(laneIndex)}</h3>
+                <strong>{summary.strength}</strong>
+              </div>
+              <div className="lane-cells">
+                {lane.cells.map((cell, cellIndex) => {
+                  const breakdown = summary.unitBreakdowns[cellIndex]
+
+                  return (
+                    <div
+                      className={cell ? 'lane-cell filled' : 'lane-cell'}
+                      draggable={Boolean(cell)}
+                      key={`${laneIndex}-${cellIndex}`}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragStart={(event) => {
+                        if (!cell) {
+                          return
+                        }
+
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', `${laneIndex}:${cellIndex}`)
+                      }}
+                      onDrop={(event) => handleDrop(event, laneIndex, cellIndex)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          onConfigureCell(laneIndex, cellIndex)
+                        }
+                      }}
+                      onClick={() => onConfigureCell(laneIndex, cellIndex)}
+                      role="button"
+                      tabIndex={unitOptions.length === 0 ? -1 : 0}
+                    >
+                      {cell ? (
+                        <>
+                          <span className="unit-name">{cell.name}</span>
+                          <span className="unit-slots" aria-label={`Slots: ${cell.slots.join(', ')}`}>
+                            {cell.slots.map((slot, slotIndex) => (
+                              <span
+                                aria-hidden="true"
+                                className={`slot-dot ${slot}`}
+                                key={`${slot}-${slotIndex}`}
+                              />
+                            ))}
+                          </span>
+                          <strong>
+                            {breakdown?.isManualOverride ? 'Manual' : 'Strength'}{' '}
+                            {breakdown?.total ?? 0}
+                          </strong>
+                          {breakdown?.effectLabel && (
+                            <span className="unit-effect-label">{breakdown.effectLabel}</span>
+                          )}
+                        </>
+                      ) : (
+                        <span>Empty</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {lane.cells.some(Boolean) && (
+                <div className="cell-actions">
+                  {lane.cells.map((cell, cellIndex) =>
+                    cell ? (
+                      <Button
+                        key={`${laneIndex}-${cellIndex}-clear`}
+                        type="button"
+                        variant="link"
+                        onClick={() => onClearCell(laneIndex, cellIndex)}
+                      >
+                        Clear {cellIndex + 1}
+                      </Button>
+                    ) : null,
                   )}
                 </div>
-              ))}
-            </div>
-            {lane.cells.some(Boolean) && (
-              <div className="cell-actions">
-                {lane.cells.map((cell, cellIndex) =>
-                  cell ? (
-                    <Button
-                      key={`${laneIndex}-${cellIndex}-clear`}
-                      type="button"
-                      variant="link"
-                      onClick={() => onClearCell(laneIndex, cellIndex)}
-                    >
-                      Clear {cellIndex + 1}
-                    </Button>
-                  ) : null,
-                )}
-              </div>
-            )}
-          </article>
-        ))}
+              )}
+            </article>
+          )
+        })}
       </div>
     </section>
   )

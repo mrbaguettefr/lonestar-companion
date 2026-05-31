@@ -19,13 +19,24 @@ import { Label } from './components/ui/label'
 import {
   createEmptyLanes,
   energyColors,
+  energyPoints,
+  extractStaticPower,
   initialEnergies,
   initialLanes,
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { solveLaneAssignments, summarizeLanes } from './lib/solver'
-import type { Energy, Lane, LaneUnit, LonestarData, PlayerShip, UnitOption } from './types/lonestar'
+import { buildBattleContext, solveLaneAssignments, summarizeLanes } from './lib/solver'
+import { IMPLEMENTED_SKILLS, formatEffect } from './lib/effects'
+import type {
+  Energy,
+  Lane,
+  LaneUnit,
+  LoadedEnergy,
+  LonestarData,
+  PlayerShip,
+  UnitOption,
+} from './types/lonestar'
 
 type EditingCell = {
   laneIndex: number
@@ -41,10 +52,15 @@ function App() {
   const [selectedShipId, setSelectedShipId] = useState('')
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null)
   const [draftUnitId, setDraftUnitId] = useState('')
-  const [draftPower, setDraftPower] = useState(0)
+  const [draftLoadedEnergy, setDraftLoadedEnergy] = useState<(LoadedEnergy | null)[]>([])
+  const [draftManualOverride, setDraftManualOverride] = useState<number | null>(null)
   const [dataStatus, setDataStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
-  const laneSummaries = useMemo(() => summarizeLanes(lanes), [lanes])
+  const battleContext = useMemo(
+    () => buildBattleContext(energies),
+    [energies],
+  )
+  const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const solution = useMemo(
     () => solveLaneAssignments(energies, laneSummaries),
     [energies, laneSummaries],
@@ -81,7 +97,7 @@ function App() {
         setUnitOptions(
           data.units
             .flatMap((unit) =>
-              Object.values(unit.levels)
+              unit.levels
                 .sort((first, second) => first.level - second.level)
                 .map((level) => ({
                   key: `${unit.id}:${level.level}`,
@@ -89,6 +105,11 @@ function App() {
                   level: level.level,
                   name: level.name,
                   slots: level.slots,
+                  skillPath: unit.skill_path,
+                  unitType: unit.type,
+                  staticPower: extractStaticPower(level.raw?.properties ?? ''),
+                  effect: level.effect,
+                  args: level.args,
                   shipKeys: unit.ships
                     .filter((ship) => ship.kind === 'player')
                     .map((ship) => ship.ship),
@@ -130,8 +151,27 @@ function App() {
   function openCellDialog(laneIndex: number, cellIndex: number) {
     const existing = lanes[laneIndex]?.cells[cellIndex] ?? null
     setEditingCell({ laneIndex, cellIndex })
-    setDraftUnitId(existing ? `${existing.unitId}:${existing.level}` : (selectedUnitOptions[0]?.key ?? ''))
-    setDraftPower(existing?.power ?? 0)
+
+    const defaultUnitKey = existing
+      ? `${existing.unitId}:${existing.level}`
+      : (selectedUnitOptions[0]?.key ?? '')
+    setDraftUnitId(defaultUnitKey)
+
+    if (existing) {
+      setDraftLoadedEnergy([...existing.loadedEnergy])
+      setDraftManualOverride(existing.manualPowerOverride)
+    } else {
+      const unit = selectedUnitOptions.find((o) => o.key === defaultUnitKey)
+      setDraftLoadedEnergy(Array(unit?.slots.length ?? 0).fill(null))
+      setDraftManualOverride(null)
+    }
+  }
+
+  function handleDraftUnitChange(newKey: string) {
+    setDraftUnitId(newKey)
+    const unit = selectedUnitOptions.find((o) => o.key === newKey)
+    setDraftLoadedEnergy(Array(unit?.slots.length ?? 0).fill(null))
+    setDraftManualOverride(null)
   }
 
   function saveCell() {
@@ -156,8 +196,14 @@ function App() {
                       unitId: unit.unitId,
                       level: unit.level,
                       name: unit.name,
-                      power: clampNumber(draftPower),
+                      skillPath: unit.skillPath,
+                      unitType: unit.unitType,
+                      staticPower: unit.staticPower,
                       slots: unit.slots,
+                      loadedEnergy: draftLoadedEnergy,
+                      manualPowerOverride: draftManualOverride,
+                      effect: unit.effect,
+                      args: unit.args,
                     } satisfies LaneUnit)
                   : cell,
               ),
@@ -232,7 +278,7 @@ function App() {
     markInputChanged()
     setEnergies((current) => [
       ...current,
-      { id: Date.now(), color: energyColors[0], count: 1 },
+      { id: Date.now(), color: energyColors[0], count: 1, point: 3 },
     ])
   }
 
@@ -247,6 +293,28 @@ function App() {
     markInputChanged()
     setEnergies((current) => current.filter((energy) => energy.id !== id))
   }
+
+  // Computed preview for the dialog
+  const draftUnit = selectedUnitOptions.find((o) => o.key === draftUnitId)
+  const draftLaneUnit: LaneUnit | null = draftUnit
+    ? {
+        unitId: draftUnit.unitId,
+        level: draftUnit.level,
+        name: draftUnit.name,
+        skillPath: draftUnit.skillPath,
+        unitType: draftUnit.unitType,
+        staticPower: draftUnit.staticPower,
+        slots: draftUnit.slots,
+        loadedEnergy: draftLoadedEnergy,
+        manualPowerOverride: draftManualOverride,
+        effect: draftUnit.effect,
+        args: draftUnit.args,
+      }
+    : null
+
+  const showManualOverride =
+    draftUnit &&
+    (draftUnit.unitType === 'support' || !IMPLEMENTED_SKILLS.has(draftUnit.skillPath))
 
   return (
     <main className="app-shell">
@@ -319,15 +387,16 @@ function App() {
             <DialogHeader>
               <DialogTitle>Configure unit</DialogTitle>
               <DialogDescription>
-                Choose a unit and enter the power applied in this lane cell.
+                Choose a unit and load energy into its slots.
               </DialogDescription>
             </DialogHeader>
+
             <div className="grid gap-2">
               <Label htmlFor="unit">Unit</Label>
               <select
                 id="unit"
                 value={draftUnitId}
-                onChange={(event) => setDraftUnitId(event.target.value)}
+                onChange={(event) => handleDraftUnitChange(event.target.value)}
               >
                 {selectedUnitOptions.map((unit) => (
                   <option key={unit.key} value={unit.key}>
@@ -336,23 +405,101 @@ function App() {
                 ))}
               </select>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="applied-power">Applied power</Label>
-              <Input
-                id="applied-power"
-                min="0"
-                type="number"
-                value={draftPower}
-                onChange={(event) => setDraftPower(clampNumber(Number(event.target.value)))}
-              />
-            </div>
+
+            {draftUnit?.effect && (
+              <p className="text-sm text-muted-foreground italic">
+                {formatEffect(draftUnit.effect, draftUnit.args)}
+              </p>
+            )}
+
+            {draftUnit && draftUnit.slots.length > 0 && (
+              <div className="grid gap-2">
+                <Label>Energy slots</Label>
+                {draftUnit.slots.map((slotColor, slotIndex) => {
+                  const loaded = draftLoadedEnergy[slotIndex] ?? null
+                  const matchingEnergies = energies.filter((e) => e.color === slotColor)
+
+                  return (
+                    <div key={slotIndex} className="flex items-center gap-2">
+                      <span className={`slot-dot ${slotColor}`} aria-hidden="true" />
+                      <span className="text-sm capitalize">{slotColor}</span>
+                      <select
+                        aria-label={`Slot ${slotIndex + 1} energy`}
+                        value={loaded ? `${loaded.color}:${loaded.point}` : ''}
+                        onChange={(event) => {
+                          const val = event.target.value
+                          const newLoaded = [...draftLoadedEnergy]
+                          if (!val) {
+                            newLoaded[slotIndex] = null
+                          } else {
+                            const [color, pointStr] = val.split(':')
+                            newLoaded[slotIndex] = { color, point: Number(pointStr) }
+                          }
+                          setDraftLoadedEnergy(newLoaded)
+                        }}
+                      >
+                        <option value="">Not loaded</option>
+                        {matchingEnergies.length > 0
+                          ? matchingEnergies.map((e) => (
+                              <option key={`${e.color}:${e.point}`} value={`${e.color}:${e.point}`}>
+                                {e.color} {e.point}pt (×{e.count} in hand)
+                              </option>
+                            ))
+                          : energyPoints.map((pt) => (
+                              <option key={pt} value={`${slotColor}:${pt}`}>
+                                {slotColor} {pt}pt
+                              </option>
+                            ))}
+                      </select>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {draftLaneUnit && draftUnit?.unitType === 'attack' && (
+              <div className="text-sm font-medium">
+                Computed strength:{' '}
+                <strong>
+                  {(() => {
+                    if (draftManualOverride !== null) return draftManualOverride
+                    // Quick preview without full lane context
+                    const loaded = draftLoadedEnergy.filter((e): e is LoadedEnergy => e !== null)
+                    const base = loaded.reduce((acc, e) => acc + e.point, 0) + draftLaneUnit.staticPower
+                    return base
+                  })()}
+                </strong>
+                {draftUnit.staticPower > 0 && (
+                  <span className="text-muted-foreground ml-1">(+{draftUnit.staticPower} PA)</span>
+                )}
+              </div>
+            )}
+
+            {showManualOverride && (
+              <div className="grid gap-2">
+                <Label htmlFor="manual-override">
+                  Manual strength override
+                  {draftUnit?.unitType === 'support' ? ' (support unit)' : ' (effect not computed)'}
+                </Label>
+                <Input
+                  id="manual-override"
+                  min="0"
+                  type="number"
+                  value={draftManualOverride ?? ''}
+                  placeholder="0"
+                  onChange={(event) => {
+                    const val = event.target.value
+                    setDraftManualOverride(val === '' ? null : clampNumber(Number(val)))
+                  }}
+                />
+              </div>
+            )}
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditingCell(null)}>
                 Cancel
               </Button>
-              <Button type="submit">
-                Save
-              </Button>
+              <Button type="submit">Save</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -391,8 +538,14 @@ function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
       unitId: option.unitId,
       level: option.level,
       name: option.name,
-      power: 0,
+      skillPath: option.skillPath,
+      unitType: option.unitType,
+      staticPower: option.staticPower,
       slots: option.slots,
+      loadedEnergy: Array(option.slots.length).fill(null),
+      manualPowerOverride: null,
+      effect: option.effect,
+      args: option.args,
     }
   }
 

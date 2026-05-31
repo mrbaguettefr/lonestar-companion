@@ -236,6 +236,17 @@
   background: #f08a30;
 }
 
+.unit-effect-label {
+  font-size: 11px;
+  color: var(--muted-foreground, #888);
+  font-style: italic;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .cell-actions {
   display: flex;
   flex-wrap: wrap;

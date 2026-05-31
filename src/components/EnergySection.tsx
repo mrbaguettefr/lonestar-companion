@@ -1,5 +1,5 @@
 import { clampNumber } from '../lib/numbers'
-import { energyColors } from '../lib/gameData'
+import { energyColors, energyPoints } from '../lib/gameData'
 import type { Energy } from '../types/lonestar'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -21,7 +21,7 @@ export function EnergySection({
     <section className="panel">
       <div className="section-heading">
         <h2>Energies in hand</h2>
-        <p>Enter each energy group by color and amount.</p>
+        <p>Enter each energy group by color, point value, and amount.</p>
       </div>
       <div className="energy-list">
         {energies.map((energy) => (
@@ -33,6 +33,17 @@ export function EnergySection({
             >
               {energyColors.map((color) => (
                 <option key={color}>{color}</option>
+              ))}
+            </select>
+            <select
+              aria-label={`${energy.color} energy point value`}
+              value={energy.point}
+              onChange={(event) => onUpdateEnergy(energy.id, { point: Number(event.target.value) })}
+            >
+              {energyPoints.map((pt) => (
+                <option key={pt} value={pt}>
+                  {pt}pt
+                </option>
               ))}
             </select>
             <Input
