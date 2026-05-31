@@ -77,8 +77,9 @@ function formsStraight(points: number[]): boolean {
   return true
 }
 
-export function formatEffect(template: string, args: number[]): string {
-  return template.replace(/\{(\d+)\}/g, (_, i) => String(args[Number(i)] ?? '?'))
+export function formatEffect(template: string, args: number[], overclockThresholds: number[] = []): string {
+  const all = [...args, ...overclockThresholds]
+  return template.replace(/\{(\d+)\}/g, (_, i) => String(all[Number(i)] ?? '?'))
 }
 
 function noEffect(): SkillResult {
@@ -221,10 +222,10 @@ const Skill_AddedDouble: SkillHandler = (unit, loaded) => {
   return { effectBonus: unit.staticPower, isDoubled: false, effectLabel: `+${unit.staticPower} (PA doubled)` }
 }
 
-// When adding Strength, add args[0] more (flat bonus on any load)
-const Skill_ExtraPower: SkillHandler = (unit, loaded) => {
-  if (loaded.length === 0) return noEffect()
+// "When adding Strength, add {0} more" — flat passive bonus, always applies
+const Skill_ExtraPower: SkillHandler = (unit) => {
   const bonus = unit.args[0] ?? 0
+  if (bonus === 0) return noEffect()
   return { effectBonus: bonus, isDoubled: false, effectLabel: `+${bonus} (extra)` }
 }
 
@@ -379,6 +380,41 @@ const Skill_Wanfa: SkillHandler = (unit, loaded) => {
   return { effectBonus: bonus, isDoubled: false, effectLabel: bonus > 0 ? `+${bonus} (≥${threshold}pt)` : null }
 }
 
+// ── Overclock handlers ─────────────────────────────────────────────────────
+// "Overclock N" is triggered when any loaded energy has point >= N (threshold from raw).
+// Bonus is taken from args[].
+
+// Two-level overclock (OC1 threshold → args[0] bonus, OC2 threshold → args[1] bonus)
+const Skill_OverclockThreeCannon: SkillHandler = (unit, loaded) => {
+  if (loaded.length === 0) return noEffect()
+  const [oc1, oc2] = unit.overclockThresholds
+  const maxPt = Math.max(...loaded.map((e) => e.point))
+  let bonus = 0
+  const labels: string[] = []
+  if (oc1 !== undefined && maxPt >= oc1) {
+    const b = unit.args[0] ?? 0
+    bonus += b
+    labels.push(`OC(≥${oc1})+${b}`)
+  }
+  if (oc2 !== undefined && maxPt >= oc2) {
+    const b = unit.args[1] ?? 0
+    bonus += b
+    labels.push(`OC(≥${oc2})+${b}`)
+  }
+  return { effectBonus: bonus, isDoubled: false, effectLabel: bonus > 0 ? labels.join(', ') : null }
+}
+
+// Single-level overclock that adds Strength (or Power treated as Strength)
+const Skill_OverclockSingle: SkillHandler = (unit, loaded) => {
+  if (loaded.length === 0) return noEffect()
+  const [threshold] = unit.overclockThresholds
+  if (threshold === undefined) return noEffect()
+  const maxPt = Math.max(...loaded.map((e) => e.point))
+  if (maxPt < threshold) return noEffect()
+  const bonus = unit.args[0] ?? 0
+  return { effectBonus: bonus, isDoubled: false, effectLabel: `+${bonus} (OC≥${threshold})` }
+}
+
 // ── Dispatch map ───────────────────────────────────────────────────────────
 
 const SKILL_HANDLERS: Record<string, SkillHandler> = {
@@ -423,6 +459,10 @@ const SKILL_HANDLERS: Record<string, SkillHandler> = {
   'Cannon_Player/Skill_AroundColorLoadSelfPower': Skill_AroundColorLoadSelfPower,
   'Cannon_Player/Skill_AroundEmptyAddPower': Skill_AroundEmptyAddPower,
   'Cannon_Player/Skill_Wanfa': Skill_Wanfa,
+  'Cannon_Player/Skill_OverclockThreeCannon': Skill_OverclockThreeCannon,
+  'Cannon_Player/Skill_OverclockPowerCannon': Skill_OverclockSingle,
+  'Cannon_Player/Skill_OverclockPowerOverLimit': Skill_OverclockSingle,
+  'Cannon_Player/Skill_OverclockPowerOverLimitLow': Skill_OverclockSingle,
 }
 
 export const IMPLEMENTED_SKILLS = new Set(Object.keys(SKILL_HANDLERS))
@@ -465,7 +505,7 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
   const handler = SKILL_HANDLERS[unit.skillPath]
   const result = handler
     ? handler(unit, loaded, ctx)
-    : { effectBonus: 0, isDoubled: false, effectLabel: unit.effect ? formatEffect(unit.effect, unit.args) : null }
+    : { effectBonus: 0, isDoubled: false, effectLabel: unit.effect ? formatEffect(unit.effect, unit.args, unit.overclockThresholds) : null }
 
   const raw = basePoints + staticPower + result.effectBonus
   const total = result.isDoubled ? raw * 2 : raw

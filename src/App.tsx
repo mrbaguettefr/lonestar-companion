@@ -20,6 +20,7 @@ import {
   canDropEnergyInSlot,
   createEmptyLanes,
   energyPoints,
+  extractOverclockThresholds,
   extractStaticPower,
   initialEnergies,
   initialLanes,
@@ -112,6 +113,7 @@ function App() {
                   skillPath: unit.skill_path,
                   unitType: unit.type,
                   staticPower: extractStaticPower(level.raw?.properties ?? ''),
+                  overclockThresholds: extractOverclockThresholds(level.raw?.properties ?? ''),
                   effect: level.effect,
                   args: level.args,
                   shipKeys: unit.ships
@@ -197,6 +199,7 @@ function App() {
                       manualPowerOverride: draftManualOverride,
                       effect: unit.effect,
                       args: unit.args,
+                    overclockThresholds: unit.overclockThresholds,
                     } satisfies LaneUnit)
                   : cell,
               ),
@@ -426,6 +429,53 @@ function App() {
     })
   }
 
+  // ── Auto-place energies ────────────────────────────────────────────────
+
+  function autoPlaceEnergies() {
+    // Expand hand energies into a flat pool, highest-point first
+    const pool: { color: string; point: number; id: number }[] = energies
+      .flatMap((e) => Array<{ color: string; point: number; id: number }>(e.count).fill({ color: e.color, point: e.point, id: e.id }))
+      .sort((a, b) => b.point - a.point)
+
+    // Sort lanes by deficit descending so neediest lanes get filled first
+    const laneOrder = laneSummaries
+      .map((s, i) => ({ i, deficit: s.deficit }))
+      .sort((a, b) => b.deficit - a.deficit)
+      .map(({ i }) => i)
+
+    const newLanes = lanes.map((lane) => ({ ...lane, cells: [...lane.cells] }))
+
+    for (const li of laneOrder) {
+      const lane = newLanes[li]
+      for (const [ci, cell] of lane.cells.entries()) {
+        if (!cell || cell.unitType !== 'attack') continue
+        const newLoaded = [...cell.loadedEnergy]
+        for (const [si, slotColor] of cell.slots.entries()) {
+          if (newLoaded[si] !== null) continue
+          const idx = pool.findIndex((e) => canDropEnergyInSlot(e.color, slotColor))
+          if (idx === -1) continue
+          const [picked] = pool.splice(idx, 1)
+          newLoaded[si] = { color: picked.color, point: picked.point }
+        }
+        lane.cells[ci] = { ...cell, loadedEnergy: newLoaded }
+      }
+    }
+
+    // Rebuild hand from remaining pool
+    const newEnergies: Energy[] = []
+    for (const e of pool) {
+      const existing = newEnergies.find((n) => n.color === e.color && n.point === e.point)
+      if (existing) {
+        existing.count++
+      } else {
+        newEnergies.push({ id: e.id, color: e.color, point: e.point, count: 1 })
+      }
+    }
+
+    setLanes(newLanes)
+    setEnergies(newEnergies)
+  }
+
   // ── Import / Export ────────────────────────────────────────────────────
 
   function exportToClipboard() {
@@ -477,6 +527,7 @@ function App() {
         skillPath: draftUnit.skillPath,
         unitType: draftUnit.unitType,
         staticPower: draftUnit.staticPower,
+        overclockThresholds: draftUnit.overclockThresholds,
         slots: draftUnit.slots,
         loadedEnergy: draftLoadedEnergy,
         manualPowerOverride: draftManualOverride,
@@ -546,7 +597,10 @@ function App() {
           <SolutionPanel
             hasSolved={hasSolved}
             solution={solution}
-            onSolve={() => setHasSolved(true)}
+            onSolve={() => {
+              autoPlaceEnergies()
+              setHasSolved(true)
+            }}
           />
         </>
       ) : (
@@ -588,7 +642,7 @@ function App() {
 
             {draftUnit?.effect && (
               <p className="text-sm text-muted-foreground italic">
-                {formatEffect(draftUnit.effect, draftUnit.args)}
+                {formatEffect(draftUnit.effect, draftUnit.args, draftUnit.overclockThresholds)}
               </p>
             )}
 
@@ -761,6 +815,7 @@ function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
       skillPath: option.skillPath,
       unitType: option.unitType,
       staticPower: option.staticPower,
+      overclockThresholds: option.overclockThresholds,
       slots: option.slots,
       loadedEnergy: Array(option.slots.length).fill(null),
       manualPowerOverride: null,

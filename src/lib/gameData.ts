@@ -38,3 +38,14 @@ export function extractStaticPower(rawProperties: string): number {
   const match = rawProperties.match(/;PA:(\d+)/)
   return match ? Number(match[1]) : 0
 }
+
+/** Parse overclock thresholds from raw properties.
+ * Returns [OC1, OC2] for two-level units, or [OC] for single-level units. */
+export function extractOverclockThresholds(rawProperties: string): number[] {
+  const oc1 = rawProperties.match(/;OC1:(\d+)/)
+  const oc2 = rawProperties.match(/;OC2:(\d+)/)
+  if (oc1 && oc2) return [Number(oc1[1]), Number(oc2[1])]
+  const oc = rawProperties.match(/;OC:(\d+)/)
+  if (oc) return [Number(oc[1])]
+  return []
+}
