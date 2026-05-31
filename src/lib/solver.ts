@@ -3,7 +3,7 @@ import { sum } from './numbers'
 
 export function summarizeLanes(lanes: Lane[]): LaneSummary[] {
   return lanes.map((lane) => {
-    const strength = sum(lane.units)
+    const strength = sum(lane.cells.map((cell) => cell?.power ?? 0))
 
     return {
       strength,
@@ -45,4 +45,3 @@ export function solveLaneAssignments(energies: Energy[], laneSummaries: LaneSumm
     totalNeeded,
   }
 }
-

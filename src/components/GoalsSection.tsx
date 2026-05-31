@@ -1,4 +1,4 @@
-import { laneNames } from '../lib/gameData'
+import { getLaneName } from '../lib/gameData'
 import type { Lane, LaneSummary } from '../types/lonestar'
 
 type GoalsSectionProps = {
@@ -16,8 +16,8 @@ export function GoalsSection({ lanes, laneSummaries, onUpdateGoal }: GoalsSectio
       </div>
       <div className="goal-grid">
         {lanes.map((lane, laneIndex) => (
-          <label className="goal-row" key={laneNames[laneIndex]}>
-            <span>{laneNames[laneIndex]}</span>
+          <label className="goal-row" key={getLaneName(laneIndex)}>
+            <span>{getLaneName(laneIndex)}</span>
             <input
               min="0"
               type="number"
@@ -35,4 +35,3 @@ export function GoalsSection({ lanes, laneSummaries, onUpdateGoal }: GoalsSectio
     </section>
   )
 }
-

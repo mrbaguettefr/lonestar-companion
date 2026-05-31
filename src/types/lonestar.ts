@@ -1,6 +1,12 @@
 export type Lane = {
-  units: number[]
+  cells: Array<LaneUnit | null>
   goal: number
+}
+
+export type LaneUnit = {
+  unitId: number
+  name: string
+  power: number
 }
 
 export type Energy = {
@@ -21,3 +27,29 @@ export type LaneSummary = {
   surplus: number
 }
 
+export type PlayerShip = {
+  id: number
+  key: string
+  name: string
+  description: string
+  move: number
+  lanes: number
+  columns: number
+  in_game: boolean | null
+}
+
+export type UnitOption = {
+  id: number
+  name: string
+}
+
+export type LonestarData = {
+  ships: {
+    players: PlayerShip[]
+  }
+  units: Array<{
+    id: number
+    base_name: string
+    upgraded_name?: string
+  }>
+}

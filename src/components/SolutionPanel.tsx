@@ -1,4 +1,4 @@
-import { laneNames } from '../lib/gameData'
+import { getLaneName } from '../lib/gameData'
 import { sum } from '../lib/numbers'
 import type { solveLaneAssignments } from '../lib/solver'
 
@@ -29,7 +29,7 @@ export function SolutionPanel({ hasSolved, solution, onSolve }: SolutionPanelPro
                 {solution.assignments.map((assignment, index) => (
                   <li key={`${assignment.laneIndex}-${assignment.color}-${index}`}>
                     Put {assignment.count} {assignment.color.toLowerCase()} energy into{' '}
-                    {laneNames[assignment.laneIndex].toLowerCase()}.
+                    {getLaneName(assignment.laneIndex).toLowerCase()}.
                   </li>
                 ))}
               </ul>
@@ -55,4 +55,3 @@ export function SolutionPanel({ hasSolved, solution, onSolve }: SolutionPanelPro
     </section>
   )
 }
-
