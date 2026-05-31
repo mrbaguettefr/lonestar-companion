@@ -14,7 +14,7 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
     ),
   )
 
-  return lanes.map((lane, _laneIndex) => {
+  return lanes.map((lane, laneIndex) => {
     const laneLoadedColors = new Set(
       lane.cells.flatMap((cell) =>
         cell ? cell.loadedEnergy.filter(Boolean).map((e) => e!.color) : [],
@@ -42,6 +42,7 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
 
       const ctx: EffectContext = {
         lane: lane.cells,
+        laneIndex,
         cellIndex,
         allLanes: allLaneCells,
         handEnergyCount: battleContext.handEnergyCount,
@@ -68,15 +69,26 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
       return { ...bd, effectBonus: bd.effectBonus + bonus, total: bd.total + bonus }
     })
 
-    // Pass 3: support passive bonuses — apply to attack units
-    const finalBreakdowns = afterFullLoad.map((bd, attackIdx) => {
-      const attackCell = lane.cells[attackIdx]
+    // Pass 3: support passive bonuses — check ALL lanes for support units (4-directional adjacency)
+    const finalBreakdowns = afterFullLoad.map((bd, attackCellIdx) => {
+      const attackCell = lane.cells[attackCellIdx]
       if (!attackCell || attackCell.unitType !== 'attack') return bd
 
       let supportBonus = 0
-      lane.cells.forEach((cell, supportIdx) => {
-        if (!cell || cell.unitType !== 'support' || supportIdx === attackIdx) return
-        supportBonus += computeSupportPassiveBonus(cell, supportIdx, attackIdx, lane.cells)
+      lanes.forEach((otherLane, otherLaneIdx) => {
+        otherLane.cells.forEach((cell, supportCellIdx) => {
+          if (!cell || cell.unitType !== 'support') return
+          // Skip self (shouldn't happen since support ≠ attack, but guard anyway)
+          if (otherLaneIdx === laneIndex && supportCellIdx === attackCellIdx) return
+          supportBonus += computeSupportPassiveBonus(
+            cell,
+            otherLaneIdx,
+            supportCellIdx,
+            laneIndex,
+            attackCellIdx,
+            allLaneCells,
+          )
+        })
       })
 
       if (supportBonus === 0) return bd
@@ -162,6 +174,7 @@ export function previewUnitStrength(
 
   const ctx: EffectContext = {
     lane,
+    laneIndex: 0,
     cellIndex,
     allLanes,
     handEnergyCount,

@@ -1,9 +1,20 @@
+import { Button } from './ui/button'
+
 type AppHeaderProps = {
   hasSolved: boolean
   isPossible: boolean
+  copyFeedback: boolean
+  onExport: () => void
+  onImport: () => void
 }
 
-export function AppHeader({ hasSolved, isPossible }: AppHeaderProps) {
+export function AppHeader({
+  hasSolved,
+  isPossible,
+  copyFeedback,
+  onExport,
+  onImport,
+}: AppHeaderProps) {
   const statusClass = hasSolved ? (isPossible ? 'status ready' : 'status blocked') : 'status idle'
   const statusLabel = hasSolved ? (isPossible ? 'Possible' : 'Not enough energy') : 'Ready to solve'
 
@@ -13,8 +24,15 @@ export function AppHeader({ hasSolved, isPossible }: AppHeaderProps) {
         <p className="eyebrow">Lonestar Companion</p>
         <h1>Lane strength solver</h1>
       </div>
-      <div className={statusClass}>{statusLabel}</div>
+      <div className="app-header-actions">
+        <Button type="button" variant="outline" size="sm" onClick={onImport}>
+          Import
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onExport}>
+          {copyFeedback ? 'Copied!' : 'Export'}
+        </Button>
+        <div className={statusClass}>{statusLabel}</div>
+      </div>
     </header>
   )
 }
-

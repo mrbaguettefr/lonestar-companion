@@ -3,11 +3,42 @@ import { sum } from './numbers'
 
 export interface EffectContext {
   lane: Array<LaneUnit | null>
+  laneIndex: number
   cellIndex: number
   allLanes: Array<Array<LaneUnit | null>>
   handEnergyCount: number
   tripower: boolean
   highestPointInBattle: number
+}
+
+/** Returns all cells that are exactly 1 step away in any cardinal direction. */
+function get4Adjacent(
+  allLanes: Array<Array<LaneUnit | null>>,
+  laneIndex: number,
+  cellIndex: number,
+): Array<LaneUnit | null> {
+  const neighbors: Array<LaneUnit | null> = []
+  // Same lane, left/right
+  if (cellIndex > 0)                       neighbors.push(allLanes[laneIndex]?.[cellIndex - 1] ?? null)
+  if (cellIndex < (allLanes[laneIndex]?.length ?? 0) - 1) neighbors.push(allLanes[laneIndex]?.[cellIndex + 1] ?? null)
+  // Same column, up/down
+  if (laneIndex > 0)                       neighbors.push(allLanes[laneIndex - 1]?.[cellIndex] ?? null)
+  if (laneIndex < allLanes.length - 1)     neighbors.push(allLanes[laneIndex + 1]?.[cellIndex] ?? null)
+  return neighbors
+}
+
+/** Returns all 4-adjacent POSITIONS (laneIndex, cellIndex pairs). */
+function get4AdjacentPositions(
+  allLanes: Array<Array<LaneUnit | null>>,
+  laneIndex: number,
+  cellIndex: number,
+): Array<{ li: number; ci: number }> {
+  const positions: Array<{ li: number; ci: number }> = []
+  if (cellIndex > 0)                       positions.push({ li: laneIndex, ci: cellIndex - 1 })
+  if (cellIndex < (allLanes[laneIndex]?.length ?? 0) - 1) positions.push({ li: laneIndex, ci: cellIndex + 1 })
+  if (laneIndex > 0)                       positions.push({ li: laneIndex - 1, ci: cellIndex })
+  if (laneIndex < allLanes.length - 1)     positions.push({ li: laneIndex + 1, ci: cellIndex })
+  return positions
 }
 
 type SkillResult = {
@@ -226,8 +257,13 @@ const Skill_IncreasePowerUp: SkillHandler = (_unit, loaded, ctx) => {
 
 const Skill_LonelyCannon: SkillHandler = (_unit, loaded, ctx) => {
   if (loaded.length === 0) return noEffect()
-  const otherAttackLoaded = ctx.lane
-    .filter((cell, i) => i !== ctx.cellIndex && cell?.unitType === 'attack' && (cell.loadedEnergy?.some(Boolean) ?? false))
+  const otherAttackLoaded = ctx.allLanes
+    .flatMap((lane, li) => lane.map((cell, ci) =>
+      cell && cell.unitType === 'attack' &&
+      !(li === ctx.laneIndex && ci === ctx.cellIndex) &&
+      cell.loadedEnergy.some(Boolean) ? cell : null
+    ))
+    .filter(Boolean)
     .length
   const isDoubled = otherAttackLoaded === 0
   return {
@@ -286,13 +322,10 @@ const Skill_TriColorLineCannon: SkillHandler = (unit, loaded, ctx) => {
   return { effectBonus: bonus, isDoubled: false, effectLabel: bonus > 0 ? `+${bonus} (tricolor)` : null }
 }
 
-// When a [White] slot of adjacent Units is loaded, add args[0] Strength
+// When a [White] slot of adjacent Units is loaded, add args[0] Strength — 4-directional
 const Skill_TurnMulPowerUp: SkillHandler = (unit, loaded, ctx) => {
   if (loaded.length === 0) return noEffect()
-  const adjacent = [ctx.cellIndex - 1, ctx.cellIndex + 1]
-    .filter((i) => i >= 0 && i < ctx.lane.length)
-    .map((i) => ctx.lane[i])
-    .filter(Boolean) as LaneUnit[]
+  const adjacent = get4Adjacent(ctx.allLanes, ctx.laneIndex, ctx.cellIndex).filter(Boolean) as LaneUnit[]
   const adjacentWhiteLoaded = adjacent.filter(
     (u) => u.slots.includes('white') && u.loadedEnergy.some((e) => e?.color === 'white'),
   ).length
@@ -300,13 +333,10 @@ const Skill_TurnMulPowerUp: SkillHandler = (unit, loaded, ctx) => {
   return { effectBonus: bonus, isDoubled: false, effectLabel: bonus > 0 ? `+${bonus} (adj white)` : null }
 }
 
-// When adjacent Attack Units load [Blue] Energy, add args[0] Strength
+// When adjacent Attack Units load [Blue] Energy, add args[0] Strength — 4-directional
 const Skill_BlueCrystal: SkillHandler = (unit, loaded, ctx) => {
   if (loaded.length === 0) return noEffect()
-  const adjacent = [ctx.cellIndex - 1, ctx.cellIndex + 1]
-    .filter((i) => i >= 0 && i < ctx.lane.length)
-    .map((i) => ctx.lane[i])
-    .filter(Boolean) as LaneUnit[]
+  const adjacent = get4Adjacent(ctx.allLanes, ctx.laneIndex, ctx.cellIndex).filter(Boolean) as LaneUnit[]
   const count = adjacent.filter(
     (u) => u.unitType === 'attack' && u.loadedEnergy.some((e) => e?.color === 'blue'),
   ).length
@@ -318,8 +348,8 @@ const Skill_BlueCrystal: SkillHandler = (unit, loaded, ctx) => {
 const Skill_AroundColorLoadSelfPower: SkillHandler = (unit, loaded, ctx) => {
   if (loaded.length === 0) return noEffect()
   const sameColUnits = ctx.allLanes
-    .flatMap((lane) => [lane[ctx.cellIndex]])
-    .filter((cell, _, arr) => cell && arr.indexOf(cell) >= 0) as LaneUnit[]
+    .map((lane) => lane[ctx.cellIndex])
+    .filter((cell): cell is LaneUnit => cell !== null && cell !== undefined)
   const colorsLoaded = new Set<string>()
   for (const u of sameColUnits) {
     for (const e of u.loadedEnergy) {
@@ -330,12 +360,11 @@ const Skill_AroundColorLoadSelfPower: SkillHandler = (unit, loaded, ctx) => {
   return { effectBonus: bonus, isDoubled: false, effectLabel: bonus > 0 ? `+${bonus} (col colors)` : null }
 }
 
-// Adjacent to empty position → +args[0]
+// Adjacent to empty position → +args[0] — 4-directional
 const Skill_AroundEmptyAddPower: SkillHandler = (unit, loaded, ctx) => {
   if (loaded.length === 0) return noEffect()
-  const adjacentEmpty = [ctx.cellIndex - 1, ctx.cellIndex + 1]
-    .filter((i) => i >= 0 && i < ctx.lane.length)
-    .some((i) => ctx.lane[i] === null)
+  const positions = get4AdjacentPositions(ctx.allLanes, ctx.laneIndex, ctx.cellIndex)
+  const adjacentEmpty = positions.some(({ li, ci }) => !ctx.allLanes[li]?.[ci])
   const bonus = adjacentEmpty ? (unit.args[0] ?? 0) : 0
   return { effectBonus: bonus, isDoubled: false, effectLabel: bonus > 0 ? `+${bonus} (adj empty)` : null }
 }
@@ -608,36 +637,48 @@ export const SUPPORT_GENERATES_ENERGY = new Set([
 
 /**
  * Returns the strength bonus that a support unit passively provides to a
- * specific attack unit at `targetCellIndex` in the same lane.
- * Covers "At the start of the battle, add {0} *Power* to …" effects.
+ * specific attack unit. Uses full lane+cell positions so adjacency can be
+ * checked in all 4 cardinal directions (left, right, up, down).
  */
 export function computeSupportPassiveBonus(
   support: LaneUnit,
+  supportLaneIndex: number,
   supportCellIndex: number,
+  targetLaneIndex: number,
   targetCellIndex: number,
-  lane: Array<LaneUnit | null>,
+  allLanes: Array<Array<LaneUnit | null>>,
 ): number {
   const args = support.args
-  const isAdjacent = Math.abs(targetCellIndex - supportCellIndex) === 1
-  const isFront = targetCellIndex === supportCellIndex - 1
-  const isBehind = targetCellIndex === supportCellIndex + 1
+  const sameLane = targetLaneIndex === supportLaneIndex
+  const sameCol  = targetCellIndex === supportCellIndex
+
+  // 4-directional adjacency: exactly one step in exactly one axis
+  const isAdjacent4 =
+    (sameLane && Math.abs(targetCellIndex - supportCellIndex) === 1) ||
+    (sameCol  && Math.abs(targetLaneIndex - supportLaneIndex) === 1)
+
+  // "front" / "behind" are within the same lane only (column positions)
+  const isFront  = sameLane && targetCellIndex === supportCellIndex - 1
+  const isBehind = sameLane && targetCellIndex === supportCellIndex + 1
+
+  const targetLane = allLanes[targetLaneIndex] ?? []
   const loadedCount = support.loadedEnergy.filter(Boolean).length
   const allLoaded = loadedCount === support.slots.length && support.slots.length > 0
 
   switch (support.skillPath) {
-    // Battle start: +{0} Power to adjacent attack units (Amplification Device)
+    // Battle start: +{0} Power to 4-directionally adjacent attack units (Amplification Device)
     case 'Support_Player/Skill_AroundPowerUp':
-      return isAdjacent ? (args[0] ?? 0) : 0
+      return isAdjacent4 ? (args[0] ?? 0) : 0
 
     // Battle start: +{0} Power to front attack unit (Power Supply Module)
     case 'Support_Player/Skill_FrontAddedPowerBattleStart':
       return isFront ? (args[0] ?? 0) : 0
 
-    // On load: add strength to ALL attack units — proportional to loaded count
+    // On load: add strength to ALL attack units in same lane — proportional to loaded count
     case 'Support_Player/Skill_LoadedAllPowerPurple':
-      return loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
+      return sameLane && loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
 
-    // On load: add 2×point to unit behind — per loaded energy
+    // On load: add 2×point to unit directly behind — per loaded energy
     case 'Support_Player/Skill_LoadAddBackPower':
       if (!isBehind || loadedCount === 0) return 0
       return support.loadedEnergy
@@ -646,34 +687,31 @@ export function computeSupportPassiveBonus(
 
     // On load: add {0} Strength to all attack units in same lane
     case 'Support_Player/Skill_LoadLinePowerButLoseAdded':
-      return loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
+      return sameLane && loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
 
-    // Fully loaded: +{0} Power to all attack units (Global Radiator)
+    // Fully loaded: +{0} Power to all attack units in same lane (Global Radiator)
     case 'Support_Player/Skill_SupportAttack':
-      return allLoaded ? (args[0] ?? 0) : 0
+      return sameLane && allLoaded ? (args[0] ?? 0) : 0
 
-    // Attenuation Device: +{0} Strength to unit behind
+    // Attenuation Device: +{0} Strength to unit directly behind
     case 'Support_Player/Skill_ReducePointPowerUpRight':
       return isBehind && loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
 
-    // Double Diverter: on load, add strength = 2×point to unit behind (already handled above)
     // Single-Use Electric Arc: on load, +{0} Power to unit behind and double its Power
     case 'Support_Player/Skill_OnceAddedDouble': {
       if (!isBehind || loadedCount === 0) return 0
-      const behindUnit = lane[targetCellIndex]
+      const behindUnit = targetLane[targetCellIndex]
       if (!behindUnit) return 0
-      const behindBase = behindUnit.staticPower + (args[0] ?? 0)
-      return behindBase // doubling is reflected as adding the current power
+      return behindUnit.staticPower + (args[0] ?? 0)
     }
 
-    // Adjacent Attack Units temporarily have Double Strength while not loaded (Ring of Strength)
-    // When adjacent units ARE loaded, no bonus from this support
+    // Adjacent Attack Units have Double Strength while not loaded (Ring of Strength) — 4 directions
     case 'Support_Player/Skill_NoLoadHaveRate': {
-      if (!isAdjacent) return 0
-      const targetUnit = lane[targetCellIndex]
+      if (!isAdjacent4) return 0
+      const targetUnit = targetLane[targetCellIndex]
       if (!targetUnit) return 0
-      const targetLoaded = targetUnit.loadedEnergy.filter(Boolean).length === 0
-      return targetLoaded ? targetUnit.staticPower : 0 // adds static power when unloaded (doubles it)
+      const targetUnloaded = targetUnit.loadedEnergy.filter(Boolean).length === 0
+      return targetUnloaded ? targetUnit.staticPower : 0
     }
 
     default:

@@ -44,6 +44,13 @@ type EditingCell = {
   cellIndex: number
 }
 
+type ConfigExport = {
+  version: 1
+  shipId: string
+  lanes: Lane[]
+  energies: Energy[]
+}
+
 function App() {
   const [lanes, setLanes] = useState<Lane[]>(initialLanes)
   const [energies, setEnergies] = useState<Energy[]>(initialEnergies)
@@ -56,6 +63,10 @@ function App() {
   const [draftLoadedEnergy, setDraftLoadedEnergy] = useState<(LoadedEnergy | null)[]>([])
   const [draftManualOverride, setDraftManualOverride] = useState<number | null>(null)
   const [dataStatus, setDataStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [importError, setImportError] = useState<string | null>(null)
+  const [isImportOpen, setIsImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [copyFeedback, setCopyFeedback] = useState(false)
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
@@ -415,6 +426,46 @@ function App() {
     })
   }
 
+  // ── Import / Export ────────────────────────────────────────────────────
+
+  function exportToClipboard() {
+    const config: ConfigExport = {
+      version: 1,
+      shipId: selectedShipId,
+      lanes,
+      energies,
+    }
+    const json = JSON.stringify(config, null, 2)
+    navigator.clipboard.writeText(json).then(() => {
+      setCopyFeedback(true)
+      setTimeout(() => setCopyFeedback(false), 1800)
+    })
+  }
+
+  function openImportDialog() {
+    setImportText('')
+    setImportError(null)
+    setIsImportOpen(true)
+  }
+
+  function applyImport() {
+    try {
+      const config = JSON.parse(importText) as ConfigExport
+      if (config.version !== 1) throw new Error('Unsupported version')
+      if (!Array.isArray(config.lanes)) throw new Error('Missing lanes')
+      if (!Array.isArray(config.energies)) throw new Error('Missing energies')
+
+      markInputChanged()
+      setSelectedShipId(config.shipId ?? '')
+      setLanes(config.lanes)
+      setEnergies(config.energies)
+      setIsImportOpen(false)
+      setImportError(null)
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Invalid JSON')
+    }
+  }
+
   // ── Dialog computed values ──────────────────────────────────────────────
 
   const draftUnit = selectedUnitOptions.find((o) => o.key === draftUnitId)
@@ -440,7 +491,13 @@ function App() {
 
   return (
     <main className="app-shell">
-      <AppHeader hasSolved={hasSolved} isPossible={solution.possible} />
+      <AppHeader
+        hasSolved={hasSolved}
+        isPossible={solution.possible}
+        copyFeedback={copyFeedback}
+        onExport={exportToClipboard}
+        onImport={openImportDialog}
+      />
       <section className="ship-panel">
         <label className="ship-select">
           <span>Player ship</span>
@@ -624,6 +681,48 @@ function App() {
                 Cancel
               </Button>
               <Button type="submit">Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {/* Import dialog */}
+      <Dialog open={isImportOpen} onOpenChange={(open) => !open && setIsImportOpen(false)}>
+        <DialogContent>
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              applyImport()
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Import configuration</DialogTitle>
+              <DialogDescription>
+                Paste a previously exported JSON configuration below.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Label htmlFor="import-json">JSON</Label>
+              <textarea
+                id="import-json"
+                className="import-textarea"
+                rows={10}
+                value={importText}
+                onChange={(e) => {
+                  setImportText(e.target.value)
+                  setImportError(null)
+                }}
+                placeholder='{ "version": 1, "shipId": "...", ... }'
+              />
+              {importError && (
+                <p className="text-sm text-destructive">{importError}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsImportOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">Apply</Button>
             </DialogFooter>
           </form>
         </DialogContent>

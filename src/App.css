@@ -12,6 +12,24 @@
   padding: 10px 0 28px;
 }
 
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-textarea {
+  width: 100%;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--text);
+  resize: vertical;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: var(--muted-foreground);
