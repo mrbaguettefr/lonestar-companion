@@ -1,6 +1,7 @@
 import { getLaneName } from '../lib/gameData'
 import { sum } from '../lib/numbers'
 import type { solveLaneAssignments } from '../lib/solver'
+import { Button } from './ui/button'
 
 type Solution = ReturnType<typeof solveLaneAssignments>
 
@@ -13,9 +14,9 @@ type SolutionPanelProps = {
 export function SolutionPanel({ hasSolved, solution, onSolve }: SolutionPanelProps) {
   return (
     <section className="solution-panel">
-      <button className="solve-button" type="button" onClick={onSolve}>
+      <Button className="min-h-13 text-lg" size="lg" type="button" onClick={onSolve}>
         Solve
-      </button>
+      </Button>
       <div className="solution-copy" aria-live="polite">
         {hasSolved ? (
           <>

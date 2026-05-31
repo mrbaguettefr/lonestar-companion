@@ -1,6 +1,8 @@
 import { clampNumber } from '../lib/numbers'
 import { energyColors } from '../lib/gameData'
 import type { Energy } from '../types/lonestar'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
 
 type EnergySectionProps = {
   energies: Energy[]
@@ -33,7 +35,7 @@ export function EnergySection({
                 <option key={color}>{color}</option>
               ))}
             </select>
-            <input
+            <Input
               aria-label={`${energy.color} energy count`}
               min="0"
               type="number"
@@ -43,21 +45,21 @@ export function EnergySection({
               }
             />
             <span className={`swatch ${energy.color.toLowerCase()}`} aria-hidden="true" />
-            <button
+            <Button
               aria-label={`Remove ${energy.color} energy`}
-              className="icon-button"
+              size="icon"
               type="button"
+              variant="destructive"
               onClick={() => onRemoveEnergy(energy.id)}
             >
               -
-            </button>
+            </Button>
           </div>
         ))}
       </div>
-      <button className="secondary-button" type="button" onClick={onAddEnergy}>
+      <Button className="mt-3.5" type="button" variant="outline" onClick={onAddEnergy}>
         Add energy
-      </button>
+      </Button>
     </section>
   )
 }
-

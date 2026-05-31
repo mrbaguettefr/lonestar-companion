@@ -5,6 +5,17 @@ import { EnergySection } from './components/EnergySection'
 import { GoalsSection } from './components/GoalsSection'
 import { LaneSection } from './components/LaneSection'
 import { SolutionPanel } from './components/SolutionPanel'
+import { Button } from './components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './components/ui/dialog'
+import { Input } from './components/ui/input'
+import { Label } from './components/ui/label'
 import {
   createEmptyLanes,
   energyColors,
@@ -296,49 +307,56 @@ function App() {
         </section>
       )}
 
-      {editingCell && (
-        <div className="modal-backdrop" role="presentation">
+      <Dialog open={Boolean(editingCell)} onOpenChange={(isOpen) => !isOpen && setEditingCell(null)}>
+        <DialogContent>
           <form
-            className="unit-dialog"
+            className="grid gap-4"
             onSubmit={(event) => {
               event.preventDefault()
               saveCell()
             }}
           >
-            <div className="section-heading">
-              <h2>Configure unit</h2>
-              <p>Choose a unit and enter the power applied in this lane cell.</p>
-            </div>
-            <label>
-              <span>Unit</span>
-              <select value={draftUnitId} onChange={(event) => setDraftUnitId(event.target.value)}>
+            <DialogHeader>
+              <DialogTitle>Configure unit</DialogTitle>
+              <DialogDescription>
+                Choose a unit and enter the power applied in this lane cell.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Label htmlFor="unit">Unit</Label>
+              <select
+                id="unit"
+                value={draftUnitId}
+                onChange={(event) => setDraftUnitId(event.target.value)}
+              >
                 {selectedUnitOptions.map((unit) => (
                   <option key={unit.key} value={unit.key}>
                     {unit.name}
                   </option>
                 ))}
               </select>
-            </label>
-            <label>
-              <span>Applied power</span>
-              <input
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="applied-power">Applied power</Label>
+              <Input
+                id="applied-power"
                 min="0"
                 type="number"
                 value={draftPower}
                 onChange={(event) => setDraftPower(clampNumber(Number(event.target.value)))}
               />
-            </label>
-            <div className="dialog-actions">
-              <button className="secondary-button" type="button" onClick={() => setEditingCell(null)}>
-                Cancel
-              </button>
-              <button className="solve-button compact" type="submit">
-                Save
-              </button>
             </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditingCell(null)}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                Save
+              </Button>
+            </DialogFooter>
           </form>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

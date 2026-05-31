@@ -1,6 +1,7 @@
 import type { DragEvent } from 'react'
 import { getLaneName } from '../lib/gameData'
 import type { Lane, LaneSummary, UnitOption } from '../types/lonestar'
+import { Button } from './ui/button'
 
 type LaneSectionProps = {
   lanes: Lane[]
@@ -110,14 +111,14 @@ export function LaneSection({
               <div className="cell-actions">
                 {lane.cells.map((cell, cellIndex) =>
                   cell ? (
-                    <button
-                      className="text-button"
+                    <Button
                       key={`${laneIndex}-${cellIndex}-clear`}
                       type="button"
+                      variant="link"
                       onClick={() => onClearCell(laneIndex, cellIndex)}
                     >
                       Clear {cellIndex + 1}
-                    </button>
+                    </Button>
                   ) : null,
                 )}
               </div>

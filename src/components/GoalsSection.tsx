@@ -1,5 +1,6 @@
 import { getLaneName } from '../lib/gameData'
 import type { Lane, LaneSummary } from '../types/lonestar'
+import { Input } from './ui/input'
 
 type GoalsSectionProps = {
   lanes: Lane[]
@@ -18,7 +19,7 @@ export function GoalsSection({ lanes, laneSummaries, onUpdateGoal }: GoalsSectio
         {lanes.map((lane, laneIndex) => (
           <label className="goal-row" key={getLaneName(laneIndex)}>
             <span>{getLaneName(laneIndex)}</span>
-            <input
+            <Input
               min="0"
               type="number"
               value={lane.goal}
