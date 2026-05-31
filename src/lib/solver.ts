@@ -1,11 +1,10 @@
 import type { Assignment, BattleContext, Energy, Lane, LaneUnit, LaneSummary } from '../types/lonestar'
-import { computeUnitStrength, type EffectContext } from './effects'
+import { computeUnitStrength, computeSupportPassiveBonus, type EffectContext } from './effects'
 import { sum } from './numbers'
 
 export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): LaneSummary[] {
   const allLaneCells = lanes.map((l) => l.cells)
 
-  // Precompute highest loaded point across all units in all lanes
   const highestPointInBattle = Math.max(
     0,
     ...lanes.flatMap((lane) =>
@@ -16,7 +15,6 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
   )
 
   return lanes.map((lane, _laneIndex) => {
-    // Precompute tripower for this lane: any orange+blue+white loaded in the lane
     const laneLoadedColors = new Set(
       lane.cells.flatMap((cell) =>
         cell ? cell.loadedEnergy.filter(Boolean).map((e) => e!.color) : [],
@@ -27,6 +25,7 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
       laneLoadedColors.has('blue') &&
       laneLoadedColors.has('orange')
 
+    // Pass 1: compute each unit's own strength
     const unitBreakdowns = lane.cells.map((cell, cellIndex) => {
       if (!cell) {
         return {
@@ -53,8 +52,7 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
       return computeUnitStrength(cell, ctx)
     })
 
-    // Second pass: Skill_FullLoadPower — when any fully-loaded unit is present,
-    // add args[0] to units with Skill_FullLoadPower
+    // Pass 2: Skill_FullLoadPower — unit that gets +args[0] whenever any unit is fully loaded
     const hasFullyLoadedUnit = lane.cells.some(
       (cell) =>
         cell &&
@@ -62,16 +60,33 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
         cell.loadedEnergy.filter(Boolean).length === cell.slots.length,
     )
 
-    const finalBreakdowns = unitBreakdowns.map((bd, cellIndex) => {
+    const afterFullLoad = unitBreakdowns.map((bd, cellIndex) => {
       const cell = lane.cells[cellIndex]
       if (!cell || cell.skillPath !== 'Cannon_Player/Skill_FullLoadPower') return bd
       if (!hasFullyLoadedUnit || cell.loadedEnergy.every((e) => !e)) return bd
       const bonus = cell.args[0] ?? 0
+      return { ...bd, effectBonus: bd.effectBonus + bonus, total: bd.total + bonus }
+    })
+
+    // Pass 3: support passive bonuses — apply to attack units
+    const finalBreakdowns = afterFullLoad.map((bd, attackIdx) => {
+      const attackCell = lane.cells[attackIdx]
+      if (!attackCell || attackCell.unitType !== 'attack') return bd
+
+      let supportBonus = 0
+      lane.cells.forEach((cell, supportIdx) => {
+        if (!cell || cell.unitType !== 'support' || supportIdx === attackIdx) return
+        supportBonus += computeSupportPassiveBonus(cell, supportIdx, attackIdx, lane.cells)
+      })
+
+      if (supportBonus === 0) return bd
       return {
         ...bd,
-        effectBonus: bd.effectBonus + bonus,
-        total: bd.total + bonus,
-        effectLabel: `+${bd.effectBonus + bonus} (fully-loaded trigger)`,
+        effectBonus: bd.effectBonus + supportBonus,
+        total: bd.total + supportBonus,
+        effectLabel: bd.effectLabel
+          ? `${bd.effectLabel} +${supportBonus} (support)`
+          : `+${supportBonus} (support)`,
       }
     })
 
@@ -96,9 +111,7 @@ export function solveLaneAssignments(energies: Energy[], laneSummaries: LaneSumm
     let available = energy.count
 
     for (let laneIndex = 0; laneIndex < remainingByLane.length; laneIndex += 1) {
-      if (available === 0) {
-        break
-      }
+      if (available === 0) break
 
       const used = Math.min(available, remainingByLane[laneIndex])
       if (used > 0) {
@@ -123,8 +136,13 @@ export function buildBattleContext(energies: Energy[]): BattleContext {
   return { handEnergyCount: sum(energies.map((e) => e.count)) }
 }
 
-// Keep a backwards-compatible unit strength helper for use in the dialog preview
-export function previewUnitStrength(unit: LaneUnit, lane: Array<LaneUnit | null>, cellIndex: number, handEnergyCount: number, allLanes: Array<Array<LaneUnit | null>>): number {
+export function previewUnitStrength(
+  unit: LaneUnit,
+  lane: Array<LaneUnit | null>,
+  cellIndex: number,
+  handEnergyCount: number,
+  allLanes: Array<Array<LaneUnit | null>>,
+): number {
   const loadedColors = new Set(
     lane.flatMap((cell) =>
       cell ? cell.loadedEnergy.filter(Boolean).map((e) => e!.color) : [],

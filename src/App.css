@@ -150,10 +150,126 @@
   font-size: 16px;
 }
 
-.unit-list,
-.energy-list {
+.unit-list {
   display: grid;
   gap: 10px;
+}
+
+/* Energy section now uses cards, not a list */
+.energy-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.energy-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 72px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.1s, box-shadow 0.1s;
+  overflow: visible;
+}
+
+.energy-card:active {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+
+.energy-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.energy-card.white {
+  background: #e8e8e8;
+  border-color: #ccc;
+}
+
+.energy-card.blue {
+  background: #3478d8;
+  border-color: #1a5cb5;
+}
+
+.energy-card.orange {
+  background: #f08a30;
+  border-color: #d06818;
+}
+
+.energy-card-point {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.energy-card.white .energy-card-point {
+  color: #222;
+  text-shadow: none;
+}
+
+.energy-card-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  margin-top: 2px;
+}
+
+.energy-card.white .energy-card-count {
+  color: rgba(0,0,0,0.5);
+}
+
+.energy-card-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e53e3e;
+  color: #fff;
+  border: none;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.energy-card:hover .energy-card-remove {
+  display: flex;
+}
+
+.energy-card-add {
+  background: transparent;
+  border: 2px dashed var(--border);
+  cursor: pointer;
+}
+
+.energy-card-add:hover {
+  border-color: var(--primary, #4f8ef0);
+  box-shadow: none;
+}
+
+.energy-card-plus {
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--muted-foreground);
+  line-height: 1;
+}
+
+.energy-card-add:hover .energy-card-plus {
+  color: var(--primary, #4f8ef0);
 }
 
 .lane-cells {
@@ -277,6 +393,13 @@
   text-shadow: none;
 }
 
+.unit-static-power {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary, #4f8ef0);
+  margin-top: 1px;
+}
+
 .unit-effect-label {
   font-size: 11px;
   color: var(--muted-foreground, #888);
@@ -311,11 +434,6 @@
 .energy-row {
   grid-template-columns: minmax(130px, 1fr) 80px 60px 28px 34px;
   max-width: 560px;
-  cursor: grab;
-}
-
-.energy-row:active {
-  cursor: grabbing;
 }
 
 .energy-drop-target {

@@ -204,6 +204,9 @@ export function LaneSection({
                             {breakdown?.isManualOverride ? 'Manual' : 'Strength'}{' '}
                             {breakdown?.total ?? 0}
                           </strong>
+                          {cell.staticPower > 0 && (
+                            <span className="unit-static-power">PA +{cell.staticPower}</span>
+                          )}
                           {breakdown?.effectLabel && (
                             <span className="unit-effect-label">{breakdown.effectLabel}</span>
                           )}

@@ -452,3 +452,231 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
     isManualOverride: false,
   }
 }
+
+// ── Support unit system ────────────────────────────────────────────────────
+
+export type GeneratedEnergy = { color: string; point: number }
+
+function upgradeColor(color: string): string {
+  if (color === 'white') return 'blue'
+  if (color === 'blue') return 'orange'
+  return 'white'
+}
+
+function degradeColor(color: string): string {
+  if (color === 'orange') return 'blue'
+  if (color === 'blue') return 'white'
+  return 'orange'
+}
+
+function clampPoint(p: number): number {
+  return Math.max(1, Math.min(9, p))
+}
+
+/**
+ * Returns energies to immediately add to the player's hand when energy
+ * is dropped onto a support unit's slot. Covers all "On load, generate …" effects.
+ */
+export function triggerSupportOnLoad(
+  unit: LaneUnit,
+  loaded: LoadedEnergy,
+): GeneratedEnergy[] {
+  const args = unit.args
+  const allLoaded = unit.loadedEnergy.filter(Boolean).length === unit.slots.length
+
+  switch (unit.skillPath) {
+    // +1 pt same color (Gentle Tap Device)
+    case 'Support_Player/Skill_SmallPush':
+      return [{ color: loaded.color, point: clampPoint(loaded.point + 1) }]
+
+    // +2 pt same color (Increment Device)
+    case 'Support_Player/Skill_SmallPushAndLeftHandPush':
+      return [{ color: loaded.color, point: clampPoint(loaded.point + 2) }]
+
+    // +args[0] pt same color (Boost Device)
+    case 'Support_Player/Skill_LoadPowerUpTwo':
+      return [{ color: loaded.color, point: clampPoint(loaded.point + (args[0] ?? 1)) }]
+
+    // -1 pt same color (Minifying Mirror)
+    case 'Support_Player/Skill_EmptyMirror':
+      return [{ color: loaded.color, point: clampPoint(loaded.point - 1) }]
+
+    // 2× pt same color (Energy Amplifier)
+    case 'Support_Player/Skill_DoublePoint':
+      return [{ color: loaded.color, point: clampPoint(loaded.point * 2) }]
+
+    // copy (Whiteboard)
+    case 'Support_Player/Skill_Useless':
+      return [{ color: loaded.color, point: loaded.point }]
+
+    // copy (Swap Device)
+    case 'Support_Player/Skill_ReplacePower':
+      return [{ color: loaded.color, point: loaded.point }]
+
+    // same-color copy (Reroll Device) — same point for planner
+    case 'Support_Player/Skill_RollPoint':
+      return [{ color: loaded.color, point: loaded.point }]
+
+    // orange args[0]-pt (High-Energy Cube / Hexagonal Rotator)
+    case 'Support_Player/Skill_LittlePurplePower':
+    case 'Support_Player/Skill_LoadGenerateEnergy':
+      return [{ color: 'orange', point: args[0] ?? 1 }]
+
+    // orange+blue+white 1pt (Colordrill Device)
+    case 'Support_Player/Skill_Create3color1point':
+      return [
+        { color: 'orange', point: 1 },
+        { color: 'blue', point: 1 },
+        { color: 'white', point: 1 },
+      ]
+
+    // degraded-color + blue 1pt (Extraction Device)
+    case 'Support_Player/Skill_EnergyExtract':
+      return [
+        { color: degradeColor(loaded.color), point: loaded.point },
+        { color: 'blue', point: 1 },
+      ]
+
+    // upgraded-color same pt (Chameleon Device)
+    case 'Support_Player/Skill_ColorChange':
+      return [{ color: upgradeColor(loaded.color), point: loaded.point }]
+
+    // blue-mixed copy (Blue Stain) — simplify: blue copy
+    case 'Support_Player/Skill_LoadExtraAddBlue':
+      return [{ color: 'blue', point: loaded.point }]
+
+    // -1pt + 1pt (Separation Device)
+    case 'Support_Player/Skill_SliptOne':
+      return [
+        { color: loaded.color, point: clampPoint(loaded.point - 1) },
+        { color: loaded.color, point: 1 },
+      ]
+
+    // 2 orange 5pt (Single-Use Energy)
+    case 'Support_Player/Skill_DestroyHandToNum':
+      return [
+        { color: 'orange', point: 5 },
+        { color: 'orange', point: 5 },
+      ]
+
+    // Fully Loaded: orange args[0]-pt (7-Point Device)
+    case 'Support_Player/Skill_StableCore':
+      return allLoaded ? [{ color: 'orange', point: args[0] ?? 7 }] : []
+
+    // Fully Loaded: 3 energies (Reforge Device)
+    case 'Support_Player/Skill_LoadFullCreateThree':
+      return allLoaded
+        ? [{ color: 'white', point: 1 }, { color: 'white', point: 1 }, { color: 'white', point: 1 }]
+        : []
+
+    // Fully Loaded: white 9pt (Expansion Device)
+    case 'Support_Player/Skill_LoadFullCreateNineAddSlot':
+      return allLoaded ? [{ color: 'white', point: 9 }] : []
+
+    // orange/blue/white at degraded color (Attenuation Device) - also adds strength behind, handled passively
+    case 'Support_Player/Skill_ReducePointPowerUpRight':
+      return [{ color: loaded.color, point: clampPoint(loaded.point - 1) }]
+
+    default:
+      return []
+  }
+}
+
+/** Skills that have on-load energy generation (used to show a ⚡ indicator in UI) */
+export const SUPPORT_GENERATES_ENERGY = new Set([
+  'Support_Player/Skill_SmallPush',
+  'Support_Player/Skill_SmallPushAndLeftHandPush',
+  'Support_Player/Skill_LoadPowerUpTwo',
+  'Support_Player/Skill_EmptyMirror',
+  'Support_Player/Skill_DoublePoint',
+  'Support_Player/Skill_Useless',
+  'Support_Player/Skill_ReplacePower',
+  'Support_Player/Skill_RollPoint',
+  'Support_Player/Skill_LittlePurplePower',
+  'Support_Player/Skill_LoadGenerateEnergy',
+  'Support_Player/Skill_Create3color1point',
+  'Support_Player/Skill_EnergyExtract',
+  'Support_Player/Skill_ColorChange',
+  'Support_Player/Skill_LoadExtraAddBlue',
+  'Support_Player/Skill_SliptOne',
+  'Support_Player/Skill_DestroyHandToNum',
+  'Support_Player/Skill_StableCore',
+  'Support_Player/Skill_LoadFullCreateThree',
+  'Support_Player/Skill_LoadFullCreateNineAddSlot',
+  'Support_Player/Skill_ReducePointPowerUpRight',
+])
+
+/**
+ * Returns the strength bonus that a support unit passively provides to a
+ * specific attack unit at `targetCellIndex` in the same lane.
+ * Covers "At the start of the battle, add {0} *Power* to …" effects.
+ */
+export function computeSupportPassiveBonus(
+  support: LaneUnit,
+  supportCellIndex: number,
+  targetCellIndex: number,
+  lane: Array<LaneUnit | null>,
+): number {
+  const args = support.args
+  const isAdjacent = Math.abs(targetCellIndex - supportCellIndex) === 1
+  const isFront = targetCellIndex === supportCellIndex - 1
+  const isBehind = targetCellIndex === supportCellIndex + 1
+  const loadedCount = support.loadedEnergy.filter(Boolean).length
+  const allLoaded = loadedCount === support.slots.length && support.slots.length > 0
+
+  switch (support.skillPath) {
+    // Battle start: +{0} Power to adjacent attack units (Amplification Device)
+    case 'Support_Player/Skill_AroundPowerUp':
+      return isAdjacent ? (args[0] ?? 0) : 0
+
+    // Battle start: +{0} Power to front attack unit (Power Supply Module)
+    case 'Support_Player/Skill_FrontAddedPowerBattleStart':
+      return isFront ? (args[0] ?? 0) : 0
+
+    // On load: add strength to ALL attack units — proportional to loaded count
+    case 'Support_Player/Skill_LoadedAllPowerPurple':
+      return loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
+
+    // On load: add 2×point to unit behind — per loaded energy
+    case 'Support_Player/Skill_LoadAddBackPower':
+      if (!isBehind || loadedCount === 0) return 0
+      return support.loadedEnergy
+        .filter((e): e is LoadedEnergy => e !== null)
+        .reduce((acc, e) => acc + e.point * 2, 0)
+
+    // On load: add {0} Strength to all attack units in same lane
+    case 'Support_Player/Skill_LoadLinePowerButLoseAdded':
+      return loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
+
+    // Fully loaded: +{0} Power to all attack units (Global Radiator)
+    case 'Support_Player/Skill_SupportAttack':
+      return allLoaded ? (args[0] ?? 0) : 0
+
+    // Attenuation Device: +{0} Strength to unit behind
+    case 'Support_Player/Skill_ReducePointPowerUpRight':
+      return isBehind && loadedCount > 0 ? (args[0] ?? 0) * loadedCount : 0
+
+    // Double Diverter: on load, add strength = 2×point to unit behind (already handled above)
+    // Single-Use Electric Arc: on load, +{0} Power to unit behind and double its Power
+    case 'Support_Player/Skill_OnceAddedDouble': {
+      if (!isBehind || loadedCount === 0) return 0
+      const behindUnit = lane[targetCellIndex]
+      if (!behindUnit) return 0
+      const behindBase = behindUnit.staticPower + (args[0] ?? 0)
+      return behindBase // doubling is reflected as adding the current power
+    }
+
+    // Adjacent Attack Units temporarily have Double Strength while not loaded (Ring of Strength)
+    // When adjacent units ARE loaded, no bonus from this support
+    case 'Support_Player/Skill_NoLoadHaveRate': {
+      if (!isAdjacent) return 0
+      const targetUnit = lane[targetCellIndex]
+      if (!targetUnit) return 0
+      const targetLoaded = targetUnit.loadedEnergy.filter(Boolean).length === 0
+      return targetLoaded ? targetUnit.staticPower : 0 // adds static power when unloaded (doubles it)
+    }
+
+    default:
+      return 0
+  }
+}

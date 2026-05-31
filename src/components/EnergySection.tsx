@@ -22,6 +22,8 @@ type EnergySectionProps = {
   onDropEnergyToHand: (payload: DragPayload) => void
 }
 
+type DialogMode = 'add' | 'edit'
+
 function parseDragPayload(data: string): DragPayload | null {
   try {
     const parsed = JSON.parse(data) as DragPayload
@@ -39,21 +41,38 @@ export function EnergySection({
   onUpdateEnergy,
   onDropEnergyToHand,
 }: EnergySectionProps) {
+  const [dialogMode, setDialogMode] = useState<DialogMode>('add')
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [draftColor, setDraftColor] = useState('white')
   const [draftPoint, setDraftPoint] = useState(3)
   const [draftCount, setDraftCount] = useState(1)
   const [isDragOver, setIsDragOver] = useState(false)
 
-  function openDialog() {
+  function openAddDialog() {
+    setDialogMode('add')
     setDraftColor('white')
     setDraftPoint(3)
     setDraftCount(1)
+    setEditingId(null)
     setIsDialogOpen(true)
   }
 
-  function handleAdd() {
-    onAddEnergy({ color: draftColor, point: draftPoint, count: draftCount })
+  function openEditDialog(energy: Energy) {
+    setDialogMode('edit')
+    setEditingId(energy.id)
+    setDraftColor(energy.color)
+    setDraftPoint(energy.point)
+    setDraftCount(energy.count)
+    setIsDialogOpen(true)
+  }
+
+  function handleSubmit() {
+    if (dialogMode === 'add') {
+      onAddEnergy({ color: draftColor, point: draftPoint, count: draftCount })
+    } else if (editingId !== null) {
+      onUpdateEnergy(editingId, { color: draftColor, point: draftPoint, count: draftCount })
+    }
     setIsDialogOpen(false)
   }
 
@@ -70,7 +89,6 @@ export function EnergySection({
       <section
         className={`panel${isDragOver ? ' energy-drop-target' : ''}`}
         onDragOver={(event) => {
-          // Only accept energy-slot drags (can't read data during dragover, accept all non-unit)
           event.preventDefault()
           setIsDragOver(true)
         }}
@@ -79,14 +97,16 @@ export function EnergySection({
       >
         <div className="section-heading">
           <h2>Energies in hand</h2>
-          <p>Drop energy from unit slots here to return it to hand.</p>
+          <p>Drag cards to unit slots · drop slot energy here to return it · click to edit.</p>
         </div>
-        <div className="energy-list">
+
+        <div className="energy-cards">
           {energies.map((energy) => (
             <div
-              className="energy-row"
               key={energy.id}
+              className={`energy-card ${energy.color}`}
               draggable
+              title={`${energy.color} ${energy.point}pt ×${energy.count} — drag to a unit slot`}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData(
@@ -99,54 +119,33 @@ export function EnergySection({
                   } satisfies DragPayload),
                 )
               }}
+              onClick={() => openEditDialog(energy)}
             >
-              <select
-                aria-label="Energy color"
-                value={energy.color}
-                onChange={(event) => onUpdateEnergy(energy.id, { color: event.target.value })}
-              >
-                {energyColors.map((color) => (
-                  <option key={color}>{color}</option>
-                ))}
-              </select>
-              <select
-                aria-label={`${energy.color} energy point value`}
-                value={energy.point}
-                onChange={(event) =>
-                  onUpdateEnergy(energy.id, { point: Number(event.target.value) })
-                }
-              >
-                {energyPoints.map((pt) => (
-                  <option key={pt} value={pt}>
-                    {pt}pt
-                  </option>
-                ))}
-              </select>
-              <Input
-                aria-label={`${energy.color} energy count`}
-                min="0"
-                type="number"
-                value={energy.count}
-                onChange={(event) =>
-                  onUpdateEnergy(energy.id, { count: clampNumber(Number(event.target.value)) })
-                }
-              />
-              <span className={`swatch ${energy.color.toLowerCase()}`} aria-hidden="true" />
-              <Button
-                aria-label={`Remove ${energy.color} energy`}
-                size="icon"
+              <span className="energy-card-point">{energy.point}</span>
+              <span className="energy-card-count">×{energy.count}</span>
+              <button
+                className="energy-card-remove"
                 type="button"
-                variant="destructive"
-                onClick={() => onRemoveEnergy(energy.id)}
+                aria-label={`Remove ${energy.color} ${energy.point}pt energy`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onRemoveEnergy(energy.id)
+                }}
               >
-                -
-              </Button>
+                ×
+              </button>
             </div>
           ))}
+
+          <button
+            type="button"
+            className="energy-card energy-card-add"
+            onClick={openAddDialog}
+            aria-label="Add energy to hand"
+          >
+            <span className="energy-card-plus">+</span>
+          </button>
         </div>
-        <Button className="mt-3.5" type="button" variant="outline" onClick={openDialog}>
-          Add energy
-        </Button>
       </section>
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => !open && setIsDialogOpen(false)}>
@@ -155,21 +154,25 @@ export function EnergySection({
             className="grid gap-4"
             onSubmit={(event) => {
               event.preventDefault()
-              handleAdd()
+              handleSubmit()
             }}
           >
             <DialogHeader>
-              <DialogTitle>Add energy to hand</DialogTitle>
+              <DialogTitle>
+                {dialogMode === 'add' ? 'Add energy to hand' : 'Edit energy'}
+              </DialogTitle>
               <DialogDescription>
-                Choose the color, point value, and quantity to add.
+                {dialogMode === 'add'
+                  ? 'Choose the color, point value, and quantity to add.'
+                  : 'Update the color, point value, or quantity.'}
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-2">
-              <Label htmlFor="new-energy-color">Color</Label>
+              <Label htmlFor="energy-color">Color</Label>
               <div className="flex items-center gap-2">
                 <select
-                  id="new-energy-color"
+                  id="energy-color"
                   value={draftColor}
                   onChange={(event) => setDraftColor(event.target.value)}
                 >
@@ -182,9 +185,9 @@ export function EnergySection({
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="new-energy-point">Point value</Label>
+              <Label htmlFor="energy-point">Point value</Label>
               <select
-                id="new-energy-point"
+                id="energy-point"
                 value={draftPoint}
                 onChange={(event) => setDraftPoint(Number(event.target.value))}
               >
@@ -197,9 +200,9 @@ export function EnergySection({
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="new-energy-count">Quantity</Label>
+              <Label htmlFor="energy-count">Quantity</Label>
               <Input
-                id="new-energy-count"
+                id="energy-count"
                 min="1"
                 max="99"
                 type="number"
@@ -214,7 +217,7 @@ export function EnergySection({
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">Add</Button>
+              <Button type="submit">{dialogMode === 'add' ? 'Add' : 'Save'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

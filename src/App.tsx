@@ -27,7 +27,7 @@ import {
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
 import { buildBattleContext, solveLaneAssignments, summarizeLanes } from './lib/solver'
-import { IMPLEMENTED_SKILLS, formatEffect } from './lib/effects'
+import { IMPLEMENTED_SKILLS, formatEffect, triggerSupportOnLoad } from './lib/effects'
 import type {
   DragPayload,
   Energy,
@@ -343,7 +343,6 @@ function App() {
       let updated = [...current]
 
       if (payload.type === 'energy-hand') {
-        // Decrement source hand entry
         updated = updated.map((e) =>
           e.id === payload.energyId ? { ...e, count: e.count - 1 } : e,
         )
@@ -363,6 +362,21 @@ function App() {
           )
         } else {
           updated = [...updated, { id: Date.now() + 1, color: displaced.color, point: displaced.point, count: 1 }]
+        }
+      }
+
+      // Trigger support unit on-load effect (energy generation)
+      if (targetCell.unitType === 'support') {
+        const generated = triggerSupportOnLoad(targetCell, energyToLoad)
+        for (const gen of generated) {
+          const existing = updated.find((e) => e.color === gen.color && e.point === gen.point)
+          if (existing) {
+            updated = updated.map((e) =>
+              e.id === existing.id ? { ...e, count: e.count + 1 } : e,
+            )
+          } else {
+            updated = [...updated, { id: Date.now() + Math.random(), color: gen.color, point: gen.point, count: 1 }]
+          }
         }
       }
 
