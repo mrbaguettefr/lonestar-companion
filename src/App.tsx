@@ -27,7 +27,7 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, solveLaneAssignments, summarizeLanes } from './lib/solver'
+import { buildBattleContext, solveOptimal, summarizeLanes, type OptimalSolution, type Placement } from './lib/solver'
 import { IMPLEMENTED_SKILLS, formatEffect, triggerSupportOnLoad } from './lib/effects'
 import type {
   DragPayload,
@@ -68,12 +68,13 @@ function App() {
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
+  const [solvedResult, setSolvedResult] = useState<OptimalSolution | null>(null)
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const solution = useMemo(
-    () => solveLaneAssignments(energies, laneSummaries),
-    [energies, laneSummaries],
+    () => solveOptimal(lanes, laneSummaries, energies),
+    [lanes, laneSummaries, energies],
   )
   const selectedShip = useMemo(
     () => ships.find((ship) => String(ship.id) === selectedShipId) ?? null,
@@ -162,6 +163,7 @@ function App() {
 
   function markInputChanged() {
     setHasSolved(false)
+    setSolvedResult(null)
   }
 
   function selectShip(shipId: string) {
@@ -461,56 +463,45 @@ function App() {
     })
   }
 
-  // ── Auto-place energies ────────────────────────────────────────────────
+  // ── Apply solver placements ────────────────────────────────────────────
 
-  function autoPlaceEnergies() {
-    // Expand hand energies into a flat pool, highest-point first
-    const pool: { color: string; point: number; id: number }[] = energies
-      .flatMap((e) => Array<{ color: string; point: number; id: number }>(e.count).fill({ color: e.color, point: e.point, id: e.id }))
-      .sort((a, b) => b.point - a.point)
+  function applyPlacements(placements: Placement[]) {
+    if (placements.length === 0) return
 
-    // Sort lanes by deficit descending so neediest lanes get filled first
-    const laneOrder = laneSummaries
-      .map((s, i) => ({ i, deficit: s.deficit }))
-      .sort((a, b) => b.deficit - a.deficit)
-      .map(({ i }) => i)
+    setLanes((current) =>
+      current.map((lane, li) => ({
+        ...lane,
+        cells: lane.cells.map((cell, ci) => {
+          if (!cell) return cell
+          const cellPlacements = placements.filter((p) => p.laneIndex === li && p.cellIndex === ci)
+          if (cellPlacements.length === 0) return cell
+          const newLoaded = [...cell.loadedEnergy]
+          for (const p of cellPlacements) {
+            newLoaded[p.slotIndex] = { color: p.color, point: p.point }
+          }
+          return {
+            ...cell,
+            loadedEnergy: newLoaded,
+            overclockThresholds:
+              cell.overclockThresholds ??
+              unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+                ?.overclockThresholds ??
+              [],
+          }
+        }),
+      })),
+    )
 
-    const newLanes = lanes.map((lane) => ({ ...lane, cells: [...lane.cells] }))
-
-    for (const li of laneOrder) {
-      const lane = newLanes[li]
-      for (const [ci, cell] of lane.cells.entries()) {
-        if (!cell || cell.unitType !== 'attack') continue
-        const newLoaded = [...cell.loadedEnergy]
-        for (const [si, slotColor] of cell.slots.entries()) {
-          if (newLoaded[si] !== null) continue
-          const idx = pool.findIndex((e) => canDropEnergyInSlot(e.color, slotColor))
-          if (idx === -1) continue
-          const [picked] = pool.splice(idx, 1)
-          newLoaded[si] = { color: picked.color, point: picked.point }
-        }
-        lane.cells[ci] = {
-          ...cell,
-          loadedEnergy: newLoaded,
-          overclockThresholds: cell.overclockThresholds ??
-            unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)?.overclockThresholds ?? [],
+    setEnergies((current) => {
+      let updated = [...current]
+      for (const p of placements) {
+        const idx = updated.findIndex((e) => e.color === p.color && e.point === p.point && e.count > 0)
+        if (idx !== -1) {
+          updated = updated.map((e, i) => (i === idx ? { ...e, count: e.count - 1 } : e))
         }
       }
-    }
-
-    // Rebuild hand from remaining pool
-    const newEnergies: Energy[] = []
-    for (const e of pool) {
-      const existing = newEnergies.find((n) => n.color === e.color && n.point === e.point)
-      if (existing) {
-        existing.count++
-      } else {
-        newEnergies.push({ id: e.id, color: e.color, point: e.point, count: 1 })
-      }
-    }
-
-    setLanes(newLanes)
-    setEnergies(newEnergies)
+      return updated.filter((e) => e.count > 0)
+    })
   }
 
   // ── Import / Export ────────────────────────────────────────────────────
@@ -586,6 +577,7 @@ function App() {
         onExport={exportToClipboard}
         onImport={openImportDialog}
       />
+
       <section className="ship-panel">
         <label className="ship-select">
           <span>Player ship</span>
@@ -633,9 +625,11 @@ function App() {
           <GoalsSection lanes={lanes} laneSummaries={laneSummaries} onUpdateGoal={updateGoal} />
           <SolutionPanel
             hasSolved={hasSolved}
-            solution={solution}
+            solvedResult={solvedResult}
+            isPossible={solution.possible}
             onSolve={() => {
-              autoPlaceEnergies()
+              setSolvedResult(solution)
+              applyPlacements(solution.placements)
               setHasSolved(true)
             }}
           />

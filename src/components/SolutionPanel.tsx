@@ -1,55 +1,56 @@
 import { getLaneName } from '../lib/gameData'
-import { sum } from '../lib/numbers'
-import type { solveLaneAssignments } from '../lib/solver'
+import type { OptimalSolution } from '../lib/solver'
 import { Button } from './ui/button'
-
-type Solution = ReturnType<typeof solveLaneAssignments>
 
 type SolutionPanelProps = {
   hasSolved: boolean
-  solution: Solution
+  solvedResult: OptimalSolution | null
+  isPossible: boolean
   onSolve: () => void
 }
 
-export function SolutionPanel({ hasSolved, solution, onSolve }: SolutionPanelProps) {
+export function SolutionPanel({ hasSolved, solvedResult, isPossible, onSolve }: SolutionPanelProps) {
   return (
     <section className="solution-panel">
       <Button className="min-h-13 text-lg" size="lg" type="button" onClick={onSolve}>
         Solve
       </Button>
       <div className="solution-copy" aria-live="polite">
-        {hasSolved ? (
+        {hasSolved && solvedResult ? (
           <>
-            <h2>{solution.possible ? 'Plan to reach the goals' : 'Goal is not reachable'}</h2>
+            <h2>{solvedResult.possible ? 'Goals met' : 'Goal not fully reachable'}</h2>
             <p>
-              Current lanes need {solution.totalNeeded} total strength. Your hand has{' '}
-              {solution.totalEnergy} energy.
+              {solvedResult.totalEnergyUsed > 0
+                ? `${solvedResult.totalEnergyUsed} energy card${solvedResult.totalEnergyUsed !== 1 ? 's' : ''} placed.`
+                : 'No extra energy was needed.'}
+              {solvedResult.spareEnergy > 0 &&
+                ` ${solvedResult.spareEnergy} card${solvedResult.spareEnergy !== 1 ? 's' : ''} remaining in hand.`}
             </p>
-            {solution.assignments.length > 0 ? (
+            {solvedResult.placements.length > 0 && (
               <ul>
-                {solution.assignments.map((assignment, index) => (
-                  <li key={`${assignment.laneIndex}-${assignment.color}-${index}`}>
-                    Put {assignment.count} {assignment.color.toLowerCase()} energy into{' '}
-                    {getLaneName(assignment.laneIndex).toLowerCase()}.
-                  </li>
-                ))}
+                {[...new Set(solvedResult.placements.map((p) => p.laneIndex))].map((li) => {
+                  const lp = solvedResult.placements.filter((p) => p.laneIndex === li)
+                  return (
+                    <li key={li}>
+                      <strong>{getLaneName(li)}:</strong>{' '}
+                      {lp.map((p) => `${p.point}pt ${p.color}`).join(', ')}
+                    </li>
+                  )
+                })}
               </ul>
-            ) : (
-              <p>No extra energy is required with the current attack units.</p>
             )}
-            {!solution.possible && (
+            {!solvedResult.possible && (
               <p className="warning">
-                Still missing {sum(solution.remainingByLane)} strength after all energy is assigned.
+                Still {solvedResult.remainingDeficit} strength short — not enough compatible energy in
+                hand.
               </p>
-            )}
-            {solution.possible && solution.spareEnergy > 0 && (
-              <p className="success">You will have {solution.spareEnergy} energy left over.</p>
             )}
           </>
         ) : (
           <p className="placeholder">
-            Press Solve to compare the lane goals against your current attack strength and energy
-            hand.
+            {isPossible
+              ? 'Press Solve to automatically load the minimum energy needed to reach all goals.'
+              : 'Press Solve to place what energy is available (goals may not all be met).'}
           </p>
         )}
       </div>

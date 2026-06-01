@@ -1,5 +1,6 @@
-import type { Assignment, BattleContext, Energy, Lane, LaneUnit, LaneSummary } from '../types/lonestar'
+import type { BattleContext, Energy, Lane, LaneUnit, LaneSummary } from '../types/lonestar'
 import { computeUnitStrength, computeSupportPassiveBonus, type EffectContext } from './effects'
+import { canDropEnergyInSlot } from './gameData'
 import { sum } from './numbers'
 
 export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): LaneSummary[] {
@@ -113,34 +114,107 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
   })
 }
 
-export function solveLaneAssignments(energies: Energy[], laneSummaries: LaneSummary[]) {
-  const totalEnergy = sum(energies.map((energy) => energy.count))
-  const totalNeeded = sum(laneSummaries.map((lane) => lane.deficit))
-  const assignments: Assignment[] = []
-  const remainingByLane = laneSummaries.map((lane) => lane.deficit)
+export type Placement = {
+  laneIndex: number
+  cellIndex: number
+  slotIndex: number
+  color: string
+  point: number
+}
 
-  for (const energy of energies) {
-    let available = energy.count
+export type OptimalSolution = {
+  possible: boolean
+  placements: Placement[]
+  totalEnergyUsed: number
+  remainingDeficit: number
+  spareEnergy: number
+}
 
-    for (let laneIndex = 0; laneIndex < remainingByLane.length; laneIndex += 1) {
-      if (available === 0) break
+/**
+ * Finds the minimum-card assignment of hand energies to empty attack-unit slots
+ * that meets all lane strength goals.
+ *
+ * Strategy:
+ * - Process lanes in order of deficit (highest first).
+ * - Within a lane, fill most-constrained slots first (orange-only before blue/orange
+ *   before any-color), so colour-specific energies are not "stolen" by permissive slots.
+ * - For each slot take the highest-point compatible card remaining in the pool.
+ * - Stop assigning to a lane once its deficit is covered.
+ */
+export function solveOptimal(
+  lanes: Lane[],
+  laneSummaries: LaneSummary[],
+  energies: Energy[],
+): OptimalSolution {
+  // Expand hand energies to a flat pool, sorted highest-point first.
+  const pool: { color: string; point: number }[] = energies
+    .flatMap((e) =>
+      Array<{ color: string; point: number }>(e.count).fill({ color: e.color, point: e.point }),
+    )
+    .sort((a, b) => b.point - a.point)
 
-      const used = Math.min(available, remainingByLane[laneIndex])
-      if (used > 0) {
-        assignments.push({ laneIndex, color: energy.color, count: used })
-        available -= used
-        remainingByLane[laneIndex] -= used
+  const placements: Placement[] = []
+  let remainingDeficit = 0
+
+  // Sort lanes by deficit descending.
+  const laneOrder = [...laneSummaries.map((s, i) => ({ i, deficit: s.deficit }))].sort(
+    (a, b) => b.deficit - a.deficit,
+  )
+
+  const constraintOf = (color: string) => (color === 'orange' ? 0 : color === 'blue' ? 1 : 2)
+
+  for (const { i: laneIndex, deficit } of laneOrder) {
+    if (deficit <= 0) continue
+
+    let toFill = deficit
+    const lane = lanes[laneIndex]
+
+    // Collect empty attack-unit slots.
+    const emptySlots: { cellIndex: number; slotIndex: number; slotColor: string }[] = []
+    for (const [ci, cell] of lane.cells.entries()) {
+      if (!cell || cell.unitType !== 'attack') continue
+      for (const [si, slotColor] of cell.slots.entries()) {
+        if (cell.loadedEnergy[si] === null) {
+          emptySlots.push({ cellIndex: ci, slotIndex: si, slotColor })
+        }
       }
     }
+
+    // Sort: most constrained colour first, then by best available compatible card point desc.
+    emptySlots.sort((a, b) => {
+      const ca = constraintOf(a.slotColor)
+      const cb = constraintOf(b.slotColor)
+      if (ca !== cb) return ca - cb
+      const bestA = Math.max(0, ...pool.filter((c) => canDropEnergyInSlot(c.color, a.slotColor)).map((c) => c.point))
+      const bestB = Math.max(0, ...pool.filter((c) => canDropEnergyInSlot(c.color, b.slotColor)).map((c) => c.point))
+      return bestB - bestA
+    })
+
+    for (const slot of emptySlots) {
+      if (toFill <= 0) break
+      // Pool is sorted high→low; findIndex gives the highest-point compatible card.
+      const idx = pool.findIndex((c) => canDropEnergyInSlot(c.color, slot.slotColor))
+      if (idx === -1) continue
+      const [card] = pool.splice(idx, 1)
+      placements.push({
+        laneIndex,
+        cellIndex: slot.cellIndex,
+        slotIndex: slot.slotIndex,
+        color: card.color,
+        point: card.point,
+      })
+      toFill -= card.point
+    }
+
+    if (toFill > 0) remainingDeficit += toFill
   }
 
   return {
-    assignments,
-    possible: totalEnergy >= totalNeeded,
-    remainingByLane,
-    spareEnergy: Math.max(0, totalEnergy - totalNeeded),
-    totalEnergy,
-    totalNeeded,
+    possible: remainingDeficit === 0,
+    placements,
+    totalEnergyUsed: placements.length,
+    remainingDeficit,
+    spareEnergy: pool.length,
   }
 }
 
