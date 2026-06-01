@@ -387,7 +387,7 @@ const Skill_Wanfa: SkillHandler = (unit, loaded) => {
 // Two-level overclock (OC1 threshold → args[0] bonus, OC2 threshold → args[1] bonus)
 const Skill_OverclockThreeCannon: SkillHandler = (unit, loaded) => {
   if (loaded.length === 0) return noEffect()
-  const [oc1, oc2] = unit.overclockThresholds
+  const [oc1, oc2] = unit.overclockThresholds ?? []
   const maxPt = Math.max(...loaded.map((e) => e.point))
   let bonus = 0
   const labels: string[] = []
@@ -407,7 +407,7 @@ const Skill_OverclockThreeCannon: SkillHandler = (unit, loaded) => {
 // Single-level overclock that adds Strength (or Power treated as Strength)
 const Skill_OverclockSingle: SkillHandler = (unit, loaded) => {
   if (loaded.length === 0) return noEffect()
-  const [threshold] = unit.overclockThresholds
+  const [threshold] = unit.overclockThresholds ?? []
   if (threshold === undefined) return noEffect()
   const maxPt = Math.max(...loaded.map((e) => e.point))
   if (maxPt < threshold) return noEffect()
