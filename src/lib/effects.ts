@@ -706,13 +706,14 @@ export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] 
   }
 
   switch (unit.skillPath) {
-    // Bleaching Device: convert all orange/blue energy to white, adding args[1] points
+    // Bleaching Device: boost ALL energies by addPts, then convert orange/blue to white
     case 'Support_Player/Skill_HandToWhite': {
       const addPts = args[1] ?? 1
-      let result = energies.filter((e) => e.color === 'white')
-      for (const e of energies) {
+      const boosted = energies.map((e) => ({ ...e, point: Math.min(9, Math.max(1, e.point + addPts)) }))
+      let result = boosted.filter((e) => e.color === 'white')
+      for (const e of boosted) {
         if (e.color === 'orange' || e.color === 'blue') {
-          result = addOrMerge(result, 'white', e.point + addPts, e.count)
+          result = addOrMerge(result, 'white', e.point, e.count)
         }
       }
       return result
