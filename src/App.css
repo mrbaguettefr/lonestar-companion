@@ -531,9 +531,21 @@ select:focus {
 
 .solution-panel {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   align-items: start;
   gap: 24px;
+}
+
+.solution-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.solution-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .solution-copy {

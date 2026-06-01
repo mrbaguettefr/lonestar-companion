@@ -707,14 +707,18 @@ export function computeSupportPassiveBonus(
   const loadedCount = support.loadedEnergy.filter(Boolean).length
   const allLoaded = loadedCount === support.slots.length && support.slots.length > 0
 
+  const targetUnit = allLanes[targetLaneIndex]?.[targetCellIndex]
+  const targetHasEnergy = targetUnit?.loadedEnergy.some(Boolean) ?? false
+
   switch (support.skillPath) {
     // Battle start: +{0} Power to 4-directionally adjacent attack units (Amplification Device)
+    // Only applies when the target unit has at least one energy loaded.
     case 'Support_Player/Skill_AroundPowerUp':
-      return isAdjacent4 ? (args[0] ?? 0) : 0
+      return isAdjacent4 && targetHasEnergy ? (args[0] ?? 0) : 0
 
     // Battle start: +{0} Power to front attack unit (Power Supply Module)
     case 'Support_Player/Skill_FrontAddedPowerBattleStart':
-      return isFront ? (args[0] ?? 0) : 0
+      return isFront && targetHasEnergy ? (args[0] ?? 0) : 0
 
     // On load: add strength to ALL attack units in same lane — proportional to loaded count
     case 'Support_Player/Skill_LoadedAllPowerPurple':

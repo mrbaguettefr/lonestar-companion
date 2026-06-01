@@ -1,20 +1,46 @@
 import { getLaneName } from '../lib/gameData'
-import type { OptimalSolution } from '../lib/solver'
+import type { OptimalSolution, SolverStrategy } from '../lib/solver'
 import { Button } from './ui/button'
 
 type SolutionPanelProps = {
   hasSolved: boolean
   solvedResult: OptimalSolution | null
   isPossible: boolean
+  solverStrategy: SolverStrategy
+  onStrategyChange: (s: SolverStrategy) => void
   onSolve: () => void
+  onClear: () => void
 }
 
-export function SolutionPanel({ hasSolved, solvedResult, isPossible, onSolve }: SolutionPanelProps) {
+export function SolutionPanel({
+  hasSolved,
+  solvedResult,
+  isPossible,
+  solverStrategy,
+  onStrategyChange,
+  onSolve,
+  onClear,
+}: SolutionPanelProps) {
   return (
     <section className="solution-panel">
-      <Button className="min-h-13 text-lg" size="lg" type="button" onClick={onSolve}>
-        Solve
-      </Button>
+      <div className="solution-controls">
+        <select
+          value={solverStrategy}
+          onChange={(e) => onStrategyChange(e.target.value as SolverStrategy)}
+          aria-label="Solver strategy"
+        >
+          <option value="least-cards">Least cards used</option>
+          <option value="efficiency">Maximize strength efficiency</option>
+        </select>
+        <div className="solution-buttons">
+          <Button className="min-h-13 text-lg" size="lg" type="button" onClick={onSolve}>
+            Solve
+          </Button>
+          <Button type="button" variant="outline" onClick={onClear}>
+            Clear energies
+          </Button>
+        </div>
+      </div>
       <div className="solution-copy" aria-live="polite">
         {hasSolved && solvedResult ? (
           <>
@@ -41,8 +67,8 @@ export function SolutionPanel({ hasSolved, solvedResult, isPossible, onSolve }: 
             )}
             {!solvedResult.possible && (
               <p className="warning">
-                Still {solvedResult.remainingDeficit} strength short — not enough compatible energy in
-                hand.
+                Still {solvedResult.remainingDeficit} strength short — not enough compatible
+                energy in hand.
               </p>
             )}
           </>

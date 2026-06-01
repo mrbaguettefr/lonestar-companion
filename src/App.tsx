@@ -27,7 +27,7 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, solveOptimal, summarizeLanes, type OptimalSolution, type Placement } from './lib/solver'
+import { buildBattleContext, solveOptimal, summarizeLanes, type OptimalSolution, type Placement, type SolverStrategy } from './lib/solver'
 import { IMPLEMENTED_SKILLS, formatEffect, triggerSupportOnLoad } from './lib/effects'
 import type {
   DragPayload,
@@ -69,12 +69,15 @@ function App() {
   const [importText, setImportText] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
   const [solvedResult, setSolvedResult] = useState<OptimalSolution | null>(null)
+  const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('least-cards')
+  const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
+  const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const solution = useMemo(
-    () => solveOptimal(lanes, laneSummaries, energies),
-    [lanes, laneSummaries, energies],
+    () => solveOptimal(lanes, laneSummaries, energies, solverStrategy),
+    [lanes, laneSummaries, energies, solverStrategy],
   )
   const selectedShip = useMemo(
     () => ships.find((ship) => String(ship.id) === selectedShipId) ?? null,
@@ -164,6 +167,8 @@ function App() {
   function markInputChanged() {
     setHasSolved(false)
     setSolvedResult(null)
+    setPresolvedLanes(null)
+    setPresolvedEnergies(null)
   }
 
   function selectShip(shipId: string) {
@@ -504,6 +509,34 @@ function App() {
     })
   }
 
+  function clearEnergies() {
+    if (presolvedLanes !== null && presolvedEnergies !== null) {
+      // Restore the exact state from before Solve was pressed (removes generated energies too)
+      setLanes(presolvedLanes)
+      setEnergies(presolvedEnergies)
+    } else {
+      // Unload all slots and return energies to hand
+      const toReturn: LoadedEnergy[] = lanes.flatMap((lane) =>
+        lane.cells.flatMap((cell) =>
+          cell ? cell.loadedEnergy.filter((e): e is LoadedEnergy => e !== null) : [],
+        ),
+      )
+      setLanes((current) =>
+        current.map((lane) => ({
+          ...lane,
+          cells: lane.cells.map((cell) =>
+            cell ? { ...cell, loadedEnergy: Array(cell.slots.length).fill(null) } : cell,
+          ),
+        })),
+      )
+      returnMultipleEnergiesToHand(toReturn)
+    }
+    setHasSolved(false)
+    setSolvedResult(null)
+    setPresolvedLanes(null)
+    setPresolvedEnergies(null)
+  }
+
   // ── Import / Export ────────────────────────────────────────────────────
 
   function exportToClipboard() {
@@ -627,11 +660,16 @@ function App() {
             hasSolved={hasSolved}
             solvedResult={solvedResult}
             isPossible={solution.possible}
+            solverStrategy={solverStrategy}
+            onStrategyChange={setSolverStrategy}
             onSolve={() => {
+              setPresolvedLanes(lanes)
+              setPresolvedEnergies(energies)
               setSolvedResult(solution)
               applyPlacements(solution.placements)
               setHasSolved(true)
             }}
+            onClear={clearEnergies}
           />
         </>
       ) : (
