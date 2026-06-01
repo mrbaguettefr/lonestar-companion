@@ -138,6 +138,28 @@ function App() {
     }
   }, [])
 
+  // Migrate stale lane cells that are missing overclockThresholds (from hot-reload
+  // or imported configs saved before the field was introduced).
+  useEffect(() => {
+    if (unitOptions.length === 0) return
+    setLanes((prev) => {
+      const needsMigration = prev.some((lane) =>
+        lane.cells.some((cell) => cell && cell.overclockThresholds == null),
+      )
+      if (!needsMigration) return prev
+      return prev.map((lane) => ({
+        ...lane,
+        cells: lane.cells.map((cell) => {
+          if (!cell || cell.overclockThresholds != null) return cell
+          const option = unitOptions.find(
+            (o) => o.unitId === cell.unitId && o.level === cell.level,
+          )
+          return { ...cell, overclockThresholds: option?.overclockThresholds ?? [] }
+        }),
+      }))
+    })
+  }, [unitOptions])
+
   function markInputChanged() {
     setHasSolved(false)
   }

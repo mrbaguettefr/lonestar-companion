@@ -78,7 +78,9 @@ function formsStraight(points: number[]): boolean {
 }
 
 export function formatEffect(template: string, args: number[], overclockThresholds: number[] = []): string {
-  const all = [...args, ...overclockThresholds]
+  // OC thresholds fill {0},{1},… and args fill the remaining slots,
+  // matching the in-game template convention where thresholds are displayed first.
+  const all = [...overclockThresholds, ...args]
   return template.replace(/\{(\d+)\}/g, (_, i) => String(all[Number(i)] ?? '?'))
 }
 
@@ -222,10 +224,10 @@ const Skill_AddedDouble: SkillHandler = (unit, loaded) => {
   return { effectBonus: unit.staticPower, isDoubled: false, effectLabel: `+${unit.staticPower} (PA doubled)` }
 }
 
-// "When adding Strength, add {0} more" — flat passive bonus, always applies
-const Skill_ExtraPower: SkillHandler = (unit) => {
+// "When adding Strength, add {0} more" — triggers only when energy is loaded
+const Skill_ExtraPower: SkillHandler = (unit, loaded) => {
+  if (loaded.length === 0) return noEffect()
   const bonus = unit.args[0] ?? 0
-  if (bonus === 0) return noEffect()
   return { effectBonus: bonus, isDoubled: false, effectLabel: `+${bonus} (extra)` }
 }
 
