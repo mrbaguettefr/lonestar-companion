@@ -355,7 +355,12 @@ function App() {
           if (li === toLane && ci === toCell) {
             const newLoaded = [...cell.loadedEnergy]
             newLoaded[toSlot] = energyToLoad
-            return { ...cell, loadedEnergy: newLoaded }
+            return {
+              ...cell,
+              loadedEnergy: newLoaded,
+              overclockThresholds: cell.overclockThresholds ??
+                unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)?.overclockThresholds ?? [],
+            }
           }
 
           // Clear/swap source slot
@@ -367,7 +372,12 @@ function App() {
           ) {
             const newLoaded = [...cell.loadedEnergy]
             newLoaded[payload.slotIndex] = canSwapToSource ? (displaced ?? null) : null
-            return { ...cell, loadedEnergy: newLoaded }
+            return {
+              ...cell,
+              loadedEnergy: newLoaded,
+              overclockThresholds: cell.overclockThresholds ??
+                unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)?.overclockThresholds ?? [],
+            }
           }
 
           return cell
@@ -479,7 +489,12 @@ function App() {
           const [picked] = pool.splice(idx, 1)
           newLoaded[si] = { color: picked.color, point: picked.point }
         }
-        lane.cells[ci] = { ...cell, loadedEnergy: newLoaded }
+        lane.cells[ci] = {
+          ...cell,
+          loadedEnergy: newLoaded,
+          overclockThresholds: cell.overclockThresholds ??
+            unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)?.overclockThresholds ?? [],
+        }
       }
     }
 
