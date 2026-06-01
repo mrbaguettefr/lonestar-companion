@@ -566,9 +566,19 @@ function App() {
       if (!Array.isArray(config.lanes)) throw new Error('Missing lanes')
       if (!Array.isArray(config.energies)) throw new Error('Missing energies')
 
+      // Patch any cells that are missing overclockThresholds (saved before the field existed)
+      const patchedLanes = config.lanes.map((lane) => ({
+        ...lane,
+        cells: lane.cells.map((cell) => {
+          if (!cell || cell.overclockThresholds != null) return cell
+          const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+          return { ...cell, overclockThresholds: option?.overclockThresholds ?? [] }
+        }),
+      }))
+
       markInputChanged()
       setSelectedShipId(config.shipId ?? '')
-      setLanes(config.lanes)
+      setLanes(patchedLanes)
       setEnergies(config.energies)
       setIsImportOpen(false)
       setImportError(null)
