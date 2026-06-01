@@ -20,6 +20,7 @@ import {
   canDropEnergyInSlot,
   createEmptyLanes,
   energyPoints,
+  extractMaxActivations,
   extractOverclockThresholds,
   extractStaticPower,
   initialEnergies,
@@ -28,7 +29,7 @@ import {
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
 import { buildBattleContext, solveMultiple, solveOptimal, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
-import { IMPLEMENTED_SKILLS, formatEffect, triggerSupportOnLoad } from './lib/effects'
+import { IMPLEMENTED_SKILLS, formatEffect, triggerActivation, triggerSupportOnLoad } from './lib/effects'
 import type {
   DragPayload,
   Energy,
@@ -70,7 +71,7 @@ function App() {
   const [copyFeedback, setCopyFeedback] = useState(false)
   const [solvedResults, setSolvedResults] = useState<RankedSolution[]>([])
   const [loadedSolutionIdx, setLoadedSolutionIdx] = useState<number>(0)
-  const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('least-cards')
+  const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('best')
   const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
   const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
   const [undoStack, setUndoStack] = useState<{ lanes: Lane[]; energies: Energy[] }[]>([])
@@ -79,8 +80,8 @@ function App() {
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const solution = useMemo(
-    () => solveOptimal(lanes, laneSummaries, energies, solverStrategy),
-    [lanes, laneSummaries, energies, solverStrategy],
+    () => solveOptimal(lanes, laneSummaries, energies),
+    [lanes, laneSummaries, energies],
   )
   const selectedShip = useMemo(
     () => ships.find((ship) => String(ship.id) === selectedShipId) ?? null,
@@ -121,6 +122,7 @@ function App() {
                   unitType: unit.type,
                   staticPower: extractStaticPower(level.raw?.properties ?? ''),
                   overclockThresholds: extractOverclockThresholds(level.raw?.properties ?? ''),
+                  maxActivations: extractMaxActivations(level.effect),
                   effect: level.effect,
                   args: level.args,
                   shipKeys: unit.ships
@@ -145,23 +147,27 @@ function App() {
     }
   }, [])
 
-  // Migrate stale lane cells that are missing overclockThresholds (from hot-reload
-  // or imported configs saved before the field was introduced).
+  // Migrate stale lane cells missing fields added after initial release.
   useEffect(() => {
     if (unitOptions.length === 0) return
     setLanes((prev) => {
       const needsMigration = prev.some((lane) =>
-        lane.cells.some((cell) => cell && cell.overclockThresholds == null),
+        lane.cells.some((cell) => cell && (cell.overclockThresholds == null || cell.maxActivations == null)),
       )
       if (!needsMigration) return prev
       return prev.map((lane) => ({
         ...lane,
         cells: lane.cells.map((cell) => {
-          if (!cell || cell.overclockThresholds != null) return cell
+          if (!cell || (cell.overclockThresholds != null && cell.maxActivations != null)) return cell
           const option = unitOptions.find(
             (o) => o.unitId === cell.unitId && o.level === cell.level,
           )
-          return { ...cell, overclockThresholds: option?.overclockThresholds ?? [] }
+          return {
+            ...cell,
+            overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
+            maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
+            activateCount: cell.activateCount ?? 0,
+          }
         }),
       }))
     })
@@ -264,12 +270,14 @@ function App() {
                       skillPath: unit.skillPath,
                       unitType: unit.unitType,
                       staticPower: unit.staticPower,
+                      overclockThresholds: unit.overclockThresholds,
+                      maxActivations: unit.maxActivations,
+                      activateCount: 0,
                       slots: unit.slots,
                       loadedEnergy: draftLoadedEnergy,
                       manualPowerOverride: draftManualOverride,
                       effect: unit.effect,
                       args: unit.args,
-                    overclockThresholds: unit.overclockThresholds,
                     } satisfies LaneUnit)
                   : cell,
               ),
@@ -278,6 +286,33 @@ function App() {
       ),
     )
     setEditingCell(null)
+  }
+
+  function activateUnit(laneIndex: number, cellIndex: number) {
+    const cell = lanes[laneIndex]?.cells[cellIndex]
+    if (!cell || cell.activateCount >= cell.maxActivations) return
+
+    const newEnergies = triggerActivation(cell, energies)
+
+    pushHistory()
+    markInputChanged()
+
+    if (newEnergies !== null) {
+      setEnergies(newEnergies)
+    }
+
+    setLanes((current) =>
+      current.map((lane, li) =>
+        li !== laneIndex
+          ? lane
+          : {
+              ...lane,
+              cells: lane.cells.map((c, ci) =>
+                ci !== cellIndex || !c ? c : { ...c, activateCount: c.activateCount + 1 },
+              ),
+            },
+      ),
+    )
   }
 
   function clearCell(laneIndex: number, cellIndex: number) {
@@ -657,13 +692,20 @@ function App() {
       if (!Array.isArray(config.lanes)) throw new Error('Missing lanes')
       if (!Array.isArray(config.energies)) throw new Error('Missing energies')
 
-      // Patch any cells that are missing overclockThresholds (saved before the field existed)
+      // Patch cells missing fields added after initial release
       const patchedLanes = config.lanes.map((lane) => ({
         ...lane,
         cells: lane.cells.map((cell) => {
-          if (!cell || cell.overclockThresholds != null) return cell
+          if (!cell) return cell
+          const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null
+          if (!needsPatch) return cell
           const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
-          return { ...cell, overclockThresholds: option?.overclockThresholds ?? [] }
+          return {
+            ...cell,
+            overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
+            maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
+            activateCount: cell.activateCount ?? 0,
+          }
         }),
       }))
 
@@ -749,6 +791,7 @@ function App() {
             selectedShipName={selectedShip.name}
             unitOptions={selectedUnitOptions}
             onClearCell={clearCell}
+            onActivateUnit={activateUnit}
             onConfigureCell={openCellDialog}
             onMoveCell={moveCell}
             onDropEnergyToSlot={dropEnergyToSlot}
@@ -769,7 +812,7 @@ function App() {
             solverStrategy={solverStrategy}
             onStrategyChange={setSolverStrategy}
             onSolve={() => {
-              const results = solveMultiple(lanes, laneSummaries, energies, solverStrategy)
+              const results = solveMultiple(lanes, laneSummaries, energies)
               setPresolvedLanes(lanes)
               setPresolvedEnergies(energies)
               setSolvedResults(results)
@@ -995,6 +1038,8 @@ function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
       unitType: option.unitType,
       staticPower: option.staticPower,
       overclockThresholds: option.overclockThresholds,
+      maxActivations: option.maxActivations,
+      activateCount: 0,
       slots: option.slots,
       loadedEnergy: Array(option.slots.length).fill(null),
       manualPowerOverride: null,

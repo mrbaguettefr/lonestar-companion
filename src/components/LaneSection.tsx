@@ -9,6 +9,7 @@ type LaneSectionProps = {
   selectedShipName: string
   unitOptions: UnitOption[]
   onClearCell: (laneIndex: number, cellIndex: number) => void
+  onActivateUnit: (laneIndex: number, cellIndex: number) => void
   onConfigureCell: (laneIndex: number, cellIndex: number) => void
   onMoveCell: (
     fromLaneIndex: number,
@@ -40,6 +41,7 @@ export function LaneSection({
   selectedShipName,
   unitOptions,
   onClearCell,
+  onActivateUnit,
   onConfigureCell,
   onMoveCell,
   onDropEnergyToSlot,
@@ -125,6 +127,14 @@ export function LaneSection({
                     >
                       {cell ? (
                         <>
+                          <button
+                            className="lane-cell-remove"
+                            type="button"
+                            aria-label={`Remove ${cell.name}`}
+                            onClick={(e) => { e.stopPropagation(); onClearCell(laneIndex, cellIndex) }}
+                          >
+                            ×
+                          </button>
                           <span className="unit-name">{cell.name}</span>
                           <span
                             className="unit-slots"
@@ -218,18 +228,21 @@ export function LaneSection({
                   )
                 })}
               </div>
-              {lane.cells.some(Boolean) && (
+              {lane.cells.some((cell) => cell && cell.maxActivations > 0) && (
                 <div className="cell-actions">
                   {lane.cells.map((cell, cellIndex) =>
-                    cell ? (
-                      <Button
-                        key={`${laneIndex}-${cellIndex}-clear`}
-                        type="button"
-                        variant="link"
-                        onClick={() => onClearCell(laneIndex, cellIndex)}
-                      >
-                        Clear {cellIndex + 1}
-                      </Button>
+                    cell && cell.maxActivations > 0 ? (
+                      <span key={`${laneIndex}-${cellIndex}-actions`} className="cell-action-group">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={cell.activateCount > 0}
+                          title={cell.activateCount > 0 ? 'Already activated' : 'Activate this unit'}
+                          onClick={(e) => { e.stopPropagation(); onActivateUnit(laneIndex, cellIndex) }}
+                        >
+                          {cell.activateCount > 0 ? 'Activated' : 'Activate'} {cellIndex + 1}
+                        </Button>
+                      </span>
                     ) : null,
                   )}
                 </div>
