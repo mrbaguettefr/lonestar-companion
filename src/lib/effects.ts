@@ -1,4 +1,4 @@
-import type { LaneUnit, LoadedEnergy, UnitStrengthBreakdown } from '../types/lonestar'
+import type { Energy, LaneUnit, LoadedEnergy, UnitStrengthBreakdown } from '../types/lonestar'
 import { sum } from './numbers'
 
 export interface EffectContext {
@@ -676,6 +676,76 @@ export const SUPPORT_GENERATES_ENERGY = new Set([
   'Support_Player/Skill_LoadFullCreateNineAddSlot',
   'Support_Player/Skill_ReducePointPowerUpRight',
 ])
+
+/**
+ * Skills whose activation effect automatically modifies the energy hand.
+ * Other activatable units still show an Activate button but effects are tracked manually.
+ */
+export const AUTO_ACTIVATION_SKILLS = new Set([
+  'Support_Player/Skill_HandToWhite',
+  'Support_Player/Skill_TurnEndPowerUp',
+  'Support_Player/Skill_StrongGenerate',
+  'Support_Player/Skill_FreePurple',
+])
+
+/**
+ * Apply a unit's *Activate* effect to the energy hand.
+ * Returns a new Energy[] with the effect applied, or null if the skill has no auto effect.
+ */
+export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] | null {
+  const args = unit.args
+  let nextId = Math.max(0, ...energies.map((e) => e.id)) + 1
+
+  function addOrMerge(result: Energy[], color: string, point: number, count = 1): Energy[] {
+    const clamped = Math.min(9, Math.max(1, point))
+    const existing = result.find((e) => e.color === color && e.point === clamped)
+    if (existing) {
+      return result.map((e) => (e === existing ? { ...e, count: e.count + count } : e))
+    }
+    return [...result, { id: nextId++, color, count, point: clamped }]
+  }
+
+  switch (unit.skillPath) {
+    // Bleaching Device: convert all orange/blue energy to white, adding args[1] points
+    case 'Support_Player/Skill_HandToWhite': {
+      const addPts = args[1] ?? 1
+      let result = energies.filter((e) => e.color === 'white')
+      for (const e of energies) {
+        if (e.color === 'orange' || e.color === 'blue') {
+          result = addOrMerge(result, 'white', e.point + addPts, e.count)
+        }
+      }
+      return result
+    }
+
+    // Growth Device: add args[1] points to all white energy in hand
+    case 'Support_Player/Skill_TurnEndPowerUp': {
+      const addPts = args[1] ?? 1
+      return energies.map((e) =>
+        e.color === 'white'
+          ? { ...e, point: Math.min(9, Math.max(1, e.point + addPts)) }
+          : e,
+      )
+    }
+
+    // Weak Energy Source lv1: generate 1 white 1-pt energy; lv2: 1 orange 1-pt
+    case 'Support_Player/Skill_StrongGenerate': {
+      const color = unit.effect.includes('Orange') ? 'orange' : 'white'
+      return addOrMerge([...energies], color, 1)
+    }
+
+    // Pulse Recharger lv1: generate args[1] white args[2]-pt; lv2: orange
+    case 'Support_Player/Skill_FreePurple': {
+      const color = unit.effect.includes('Orange') ? 'orange' : 'white'
+      const count = args[1] ?? 1
+      const point = args[2] ?? 6
+      return addOrMerge([...energies], color, point, count)
+    }
+
+    default:
+      return null
+  }
+}
 
 /**
  * Returns the strength bonus that a support unit passively provides to a

@@ -36,6 +36,8 @@ export type LaneUnit = {
   unitType: 'attack' | 'support'
   staticPower: number
   overclockThresholds: number[]
+  maxActivations: number
+  activateCount: number
   slots: string[]
   loadedEnergy: (LoadedEnergy | null)[]
   manualPowerOverride: number | null
@@ -92,6 +94,7 @@ export type UnitOption = {
   unitType: 'attack' | 'support'
   staticPower: number
   overclockThresholds: number[]
+  maxActivations: number
   effect: string
   args: number[]
   shipKeys: string[]

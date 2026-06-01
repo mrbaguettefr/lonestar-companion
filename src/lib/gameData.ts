@@ -49,3 +49,11 @@ export function extractOverclockThresholds(rawProperties: string): number[] {
   if (oc) return [Number(oc[1])]
   return []
 }
+
+/** Parse max activations from the effect text. Returns 0 if the unit is not activatable. */
+export function extractMaxActivations(effect: string): number {
+  if (!effect.includes('*Activate*')) return 0
+  const match = effect.match(/(\d+) times per battle/)
+  if (match) return Number(match[1])
+  return 1
+}
