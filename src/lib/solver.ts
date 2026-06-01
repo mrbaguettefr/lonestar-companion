@@ -1,5 +1,5 @@
 import type { BattleContext, Energy, Lane, LaneUnit, LaneSummary, LoadedEnergy } from '../types/lonestar'
-import { computeUnitStrength, computeSupportPassiveBonus, type EffectContext } from './effects'
+import { computeUnitStrength, computeSupportPassiveBonus, triggerSupportOnLoad, type EffectContext } from './effects'
 import { canDropEnergyInSlot } from './gameData'
 import { sum } from './numbers'
 
@@ -205,6 +205,7 @@ type GlobalSlot = {
   cellIndex: number
   slotIndex: number
   slotColor: string
+  unitType: 'attack' | 'support'
 }
 
 type SearchCard = { color: string; point: number }
@@ -282,7 +283,7 @@ function searchGlobal(
   }
 
   const tried = new Set<string>()
-  const options: { card: SearchCard; pidx: number }[] = []
+  const options: { card: SearchCard }[] = []
 
   for (let i = 0; i < pool.length; i++) {
     const card = pool[i]
@@ -290,20 +291,22 @@ function searchGlobal(
     const key = `${card.color}:${card.point}`
     if (tried.has(key)) continue
     tried.add(key)
-    options.push({ card, pidx: i })
+    options.push({ card })
   }
 
-  // Sort options by marginal strength contribution (desc) for better pruning
-  const baseStrength = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount)
-  options.sort((a, b) => {
-    const prev = cell.loadedEnergy[slot.slotIndex]
-    cell.loadedEnergy[slot.slotIndex] = { color: a.card.color, point: a.card.point } as LoadedEnergy
-    const contribA = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount) - baseStrength
-    cell.loadedEnergy[slot.slotIndex] = { color: b.card.color, point: b.card.point } as LoadedEnergy
-    const contribB = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount) - baseStrength
-    cell.loadedEnergy[slot.slotIndex] = prev
-    return contribB - contribA
-  })
+  // For attack slots: sort by marginal strength contribution desc for better pruning.
+  if (slot.unitType === 'attack') {
+    const baseStrength = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount)
+    options.sort((a, b) => {
+      const prev = cell.loadedEnergy[slot.slotIndex]
+      cell.loadedEnergy[slot.slotIndex] = { color: a.card.color, point: a.card.point } as LoadedEnergy
+      const contribA = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount) - baseStrength
+      cell.loadedEnergy[slot.slotIndex] = { color: b.card.color, point: b.card.point } as LoadedEnergy
+      const contribB = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount) - baseStrength
+      cell.loadedEnergy[slot.slotIndex] = prev
+      return contribB - contribA
+    })
+  }
 
   for (const { card } of options) {
     const idx = pool.findIndex((c) => c.color === card.color && c.point === card.point)
@@ -311,19 +314,25 @@ function searchGlobal(
 
     const prev = cell.loadedEnergy[slot.slotIndex]
     cell.loadedEnergy[slot.slotIndex] = { color: card.color, point: card.point } as LoadedEnergy
-    pool.splice(idx, 1)
+    const nextPlacement = { laneIndex: slot.laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point }
 
-    searchGlobal(
-      allSlots, slotIdx + 1, mutableLaneCells, pool,
-      [...placements, { laneIndex: slot.laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point }],
-      collector, budget, handEnergyCount,
-    )
+    if (slot.unitType === 'support') {
+      // Support slot: generated energies expand the pool — pass a copy so backtracking is safe.
+      const generated = triggerSupportOnLoad(cell as LaneUnit, { color: card.color, point: card.point })
+      const newPool = [...pool.slice(0, idx), ...pool.slice(idx + 1)]
+      for (const g of generated) newPool.push({ color: g.color, point: g.point })
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, newPool, [...placements, nextPlacement], collector, budget, handEnergyCount)
+    } else {
+      // Attack slot: mutate pool in place (restored after recursion).
+      pool.splice(idx, 1)
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, [...placements, nextPlacement], collector, budget, handEnergyCount)
+      pool.splice(idx, 0, card)
+    }
 
-    pool.splice(idx, 0, card)
     cell.loadedEnergy[slot.slotIndex] = prev
   }
 
-  // Also try skipping this slot
+  // Also try skipping this slot.
   searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, placements, collector, budget, handEnergyCount)
 }
 
@@ -392,15 +401,19 @@ export function solveMultiple(
   const allSlots: GlobalSlot[] = []
   for (const [laneIndex, lane] of lanes.entries()) {
     for (const [ci, cell] of lane.cells.entries()) {
-      if (!cell || cell.unitType !== 'attack') continue
+      if (!cell || cell.slots.length === 0) continue
       for (const [si, slotColor] of cell.slots.entries()) {
         if (cell.loadedEnergy[si] === null) {
-          allSlots.push({ laneIndex, cellIndex: ci, slotIndex: si, slotColor })
+          allSlots.push({ laneIndex, cellIndex: ci, slotIndex: si, slotColor, unitType: cell.unitType })
         }
       }
     }
   }
-  allSlots.sort((a, b) => constraintOf(a.slotColor) - constraintOf(b.slotColor))
+  // Support slots first (they may generate energy usable in attack slots), then by colour constraint.
+  allSlots.sort((a, b) => {
+    if (a.unitType !== b.unitType) return a.unitType === 'support' ? -1 : 1
+    return constraintOf(a.slotColor) - constraintOf(b.slotColor)
+  })
 
   if (allSlots.length === 0 || pool.length === 0) {
     return [toRanked([], lanes, totalHandCount)]
@@ -483,4 +496,94 @@ export function previewUnitStrength(
   }
 
   return computeUnitStrength(unit, ctx).total
+}
+
+// ── Step-by-step solution guide ────────────────────────────────────────────
+
+export type SolutionStep = {
+  placement: Placement
+  unitName: string
+  unitType: 'attack' | 'support'
+  slotColor: string
+  generatedEnergies: { color: string; point: number }[]
+  /** Strength label from the effect handler (e.g. "+4 (OC≥3+2, OC≥5+2)"). */
+  effectLabel: string | null
+  /** Current total attack strength of the lane after this step. */
+  laneStrengthAfter: number
+  laneGoal: number
+}
+
+/**
+ * Simulate a solution placement-by-placement and return annotated steps.
+ * Support-unit loads come first (so generated energies appear before they are used).
+ */
+export function computeSolutionSteps(
+  lanes: Lane[],
+  placements: Placement[],
+  initialHandCount: number,
+): SolutionStep[] {
+  if (placements.length === 0) return []
+
+  // Clone lanes so simulation doesn't touch original state.
+  const simLanes: Lane[] = lanes.map((lane) => ({
+    ...lane,
+    cells: cloneLaneCells(lane.cells),
+  }))
+
+  // Order: support slots first, then attack — within each, by lane/cell/slot.
+  const sorted = [...placements].sort((a, b) => {
+    const ua = simLanes[a.laneIndex].cells[a.cellIndex]?.unitType ?? 'attack'
+    const ub = simLanes[b.laneIndex].cells[b.cellIndex]?.unitType ?? 'attack'
+    if (ua !== ub) return ua === 'support' ? -1 : 1
+    if (a.laneIndex !== b.laneIndex) return a.laneIndex - b.laneIndex
+    if (a.cellIndex !== b.cellIndex) return a.cellIndex - b.cellIndex
+    return a.slotIndex - b.slotIndex
+  })
+
+  const steps: SolutionStep[] = []
+
+  for (const p of sorted) {
+    const cells = simLanes[p.laneIndex].cells
+    const cell = cells[p.cellIndex]
+    if (!cell) continue
+
+    const slotColor = cell.slots[p.slotIndex] ?? 'white'
+
+    // Apply placement to simulation.
+    cell.loadedEnergy[p.slotIndex] = { color: p.color, point: p.point }
+
+    // Generated energies (support on-load effects).
+    const generatedEnergies = cell.unitType === 'support'
+      ? triggerSupportOnLoad(cell, { color: p.color, point: p.point }).map((g) => ({ color: g.color, point: g.point }))
+      : []
+
+    // Compute effect label and lane strength.
+    const loadedColors = new Set(cells.flatMap((c) => (c ? c.loadedEnergy.filter(Boolean).map((e) => e!.color) : [])))
+    const tripower = loadedColors.has('white') && loadedColors.has('blue') && loadedColors.has('orange')
+    const highestPoint = Math.max(0, ...cells.flatMap((c) => (c ? c.loadedEnergy.filter(Boolean).map((e) => e!.point) : [])))
+    const ctx: EffectContext = {
+      lane: cells,
+      laneIndex: p.laneIndex,
+      cellIndex: p.cellIndex,
+      allLanes: [cells],
+      handEnergyCount: initialHandCount,
+      tripower,
+      highestPointInBattle: highestPoint,
+    }
+    const breakdown = computeUnitStrength(cell, ctx)
+    const laneStrength = computeLaneAttackStrength(cells, p.laneIndex, initialHandCount)
+
+    steps.push({
+      placement: p,
+      unitName: cell.name,
+      unitType: cell.unitType,
+      slotColor,
+      generatedEnergies,
+      effectLabel: breakdown.effectLabel,
+      laneStrengthAfter: laneStrength,
+      laneGoal: simLanes[p.laneIndex].goal,
+    })
+  }
+
+  return steps
 }

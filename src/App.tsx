@@ -73,6 +73,8 @@ function App() {
   const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('least-cards')
   const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
   const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
+  const [undoStack, setUndoStack] = useState<{ lanes: Lane[]; energies: Energy[] }[]>([])
+  const [redoStack, setRedoStack] = useState<{ lanes: Lane[]; energies: Energy[] }[]>([])
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
@@ -172,6 +174,43 @@ function App() {
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
   }
+
+  function pushHistory() {
+    setUndoStack((prev) => [...prev.slice(-29), { lanes, energies }])
+    setRedoStack([])
+  }
+
+  function undo() {
+    if (undoStack.length === 0) return
+    const prev = undoStack[undoStack.length - 1]
+    setRedoStack((r) => [...r.slice(-29), { lanes, energies }])
+    setUndoStack((u) => u.slice(0, -1))
+    setLanes(prev.lanes)
+    setEnergies(prev.energies)
+    markInputChanged()
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return
+    const next = redoStack[redoStack.length - 1]
+    setUndoStack((u) => [...u.slice(-29), { lanes, energies }])
+    setRedoStack((r) => r.slice(0, -1))
+    setLanes(next.lanes)
+    setEnergies(next.energies)
+    markInputChanged()
+  }
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
+      if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); redo() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undoStack, redoStack, lanes, energies])
 
   function selectShip(shipId: string) {
     markInputChanged()
@@ -341,6 +380,7 @@ function App() {
     const slotColor = targetCell.slots[toSlot]
     if (!canDropEnergyInSlot(payload.color, slotColor)) return
 
+    pushHistory()
     markInputChanged()
 
     const displaced = targetCell.loadedEnergy[toSlot]
@@ -444,6 +484,7 @@ function App() {
     if (payload.type !== 'energy-slot') return
     const { laneIndex, cellIndex, slotIndex, color, point } = payload
 
+    pushHistory()
     markInputChanged()
 
     setLanes((current) =>
@@ -474,6 +515,7 @@ function App() {
 
   function applyPlacements(placements: Placement[]) {
     if (placements.length === 0) return
+    pushHistory()
 
     setLanes((current) =>
       current.map((lane, li) => ({
@@ -512,6 +554,7 @@ function App() {
   }
 
   function clearEnergies() {
+    pushHistory()
     if (presolvedLanes !== null && presolvedEnergies !== null) {
       // Restore the exact state from before Solve was pressed (removes generated energies too)
       setLanes(presolvedLanes)
@@ -667,6 +710,10 @@ function App() {
         copyFeedback={copyFeedback}
         onExport={exportToClipboard}
         onImport={openImportDialog}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
+        onUndo={undo}
+        onRedo={redo}
       />
 
       <section className="ship-panel">
@@ -732,6 +779,7 @@ function App() {
             }}
             onClear={clearEnergies}
             onLoadSolution={loadSolution}
+            presolvedLanes={presolvedLanes}
           />
         </>
       ) : (

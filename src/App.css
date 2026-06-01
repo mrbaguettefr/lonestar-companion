@@ -649,6 +649,59 @@ select:focus {
   font-size: 0.85rem;
 }
 
+.solution-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.solution-steps {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.solution-step {
+  display: grid;
+  gap: 2px;
+  font-size: 0.82rem;
+  padding: 6px 8px;
+  background: var(--field);
+  border-radius: 6px;
+}
+
+.step-action {
+  font-weight: 500;
+}
+
+.step-generated {
+  color: #d06818;
+  font-size: 0.78rem;
+  padding-left: 16px;
+}
+
+.step-effect {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-style: italic;
+  padding-left: 16px;
+}
+
+.step-strength {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  padding-left: 16px;
+}
+
+.step-strength--met {
+  color: #18734d;
+  font-weight: 600;
+}
+
 .warning {
   margin-top: 14px;
   color: #a64031;
