@@ -27,7 +27,7 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, solveOptimal, summarizeLanes, type OptimalSolution, type Placement, type SolverStrategy } from './lib/solver'
+import { buildBattleContext, solveMultiple, solveOptimal, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
 import { IMPLEMENTED_SKILLS, formatEffect, triggerSupportOnLoad } from './lib/effects'
 import type {
   DragPayload,
@@ -68,7 +68,8 @@ function App() {
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
-  const [solvedResult, setSolvedResult] = useState<OptimalSolution | null>(null)
+  const [solvedResults, setSolvedResults] = useState<RankedSolution[]>([])
+  const [loadedSolutionIdx, setLoadedSolutionIdx] = useState<number>(0)
   const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('least-cards')
   const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
   const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
@@ -166,7 +167,8 @@ function App() {
 
   function markInputChanged() {
     setHasSolved(false)
-    setSolvedResult(null)
+    setSolvedResults([])
+    setLoadedSolutionIdx(0)
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
   }
@@ -532,9 +534,55 @@ function App() {
       returnMultipleEnergiesToHand(toReturn)
     }
     setHasSolved(false)
-    setSolvedResult(null)
+    setSolvedResults([])
+    setLoadedSolutionIdx(0)
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
+  }
+
+  function loadSolution(idx: number) {
+    if (!presolvedLanes || !presolvedEnergies || solvedResults.length === 0) return
+    const solution = solvedResults[idx]
+    if (!solution) return
+
+    const newLanes = presolvedLanes.map((lane, li) => ({
+      ...lane,
+      cells: lane.cells.map((cell, ci) => {
+        if (!cell) return cell
+        const cellPlacements = solution.placements.filter(
+          (p) => p.laneIndex === li && p.cellIndex === ci,
+        )
+        if (cellPlacements.length === 0) return cell
+        const newLoaded = [...cell.loadedEnergy]
+        for (const p of cellPlacements) {
+          newLoaded[p.slotIndex] = { color: p.color, point: p.point }
+        }
+        return {
+          ...cell,
+          loadedEnergy: newLoaded,
+          overclockThresholds:
+            cell.overclockThresholds ??
+            unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+              ?.overclockThresholds ??
+            [],
+        }
+      }),
+    }))
+
+    let newEnergies = [...presolvedEnergies]
+    for (const p of solution.placements) {
+      const eIdx = newEnergies.findIndex(
+        (e) => e.color === p.color && e.point === p.point && e.count > 0,
+      )
+      if (eIdx !== -1) {
+        newEnergies = newEnergies.map((e, i) => (i === eIdx ? { ...e, count: e.count - 1 } : e))
+      }
+    }
+    newEnergies = newEnergies.filter((e) => e.count > 0)
+
+    setLanes(newLanes)
+    setEnergies(newEnergies)
+    setLoadedSolutionIdx(idx)
   }
 
   // ── Import / Export ────────────────────────────────────────────────────
@@ -668,18 +716,22 @@ function App() {
           <GoalsSection lanes={lanes} laneSummaries={laneSummaries} onUpdateGoal={updateGoal} />
           <SolutionPanel
             hasSolved={hasSolved}
-            solvedResult={solvedResult}
+            solvedResults={solvedResults}
+            loadedSolutionIdx={loadedSolutionIdx}
             isPossible={solution.possible}
             solverStrategy={solverStrategy}
             onStrategyChange={setSolverStrategy}
             onSolve={() => {
+              const results = solveMultiple(lanes, laneSummaries, energies, solverStrategy)
               setPresolvedLanes(lanes)
               setPresolvedEnergies(energies)
-              setSolvedResult(solution)
-              applyPlacements(solution.placements)
+              setSolvedResults(results)
+              setLoadedSolutionIdx(0)
+              if (results.length > 0) applyPlacements(results[0].placements)
               setHasSolved(true)
             }}
             onClear={clearEnergies}
+            onLoadSolution={loadSolution}
           />
         </>
       ) : (

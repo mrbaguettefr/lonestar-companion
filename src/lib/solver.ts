@@ -3,7 +3,7 @@ import { computeUnitStrength, computeSupportPassiveBonus, type EffectContext } f
 import { canDropEnergyInSlot } from './gameData'
 import { sum } from './numbers'
 
-export type SolverStrategy = 'least-cards' | 'efficiency'
+export type SolverStrategy = 'least-cards' | 'efficiency' | 'max-damage'
 
 export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): LaneSummary[] {
   const allLaneCells = lanes.map((l) => l.cells)
@@ -132,14 +132,21 @@ export type OptimalSolution = {
   spareEnergy: number
 }
 
-export function solveOptimal(
-  lanes: Lane[],
-  laneSummaries: LaneSummary[],
-  energies: Energy[],
-  strategy: SolverStrategy = 'least-cards',
-): OptimalSolution {
-  if (strategy === 'efficiency') return solveEfficiency(lanes, laneSummaries, energies)
-  return solveLeastCards(lanes, laneSummaries, energies)
+export type SolutionStats = {
+  energiesUsed: number
+  strengthGenerated: number
+  damageDealt: number
+  damageReceived: number
+  efficiencyRatio: number
+}
+
+export type RankedSolution = {
+  placements: Placement[]
+  possible: boolean
+  totalEnergyUsed: number
+  remainingDeficit: number
+  spareEnergy: number
+  stats: SolutionStats
 }
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
@@ -159,100 +166,48 @@ function simulatePlacements(lanes: Lane[], placements: Placement[]): Lane[] {
   }))
 }
 
-/**
- * Verify placements against the full summarizeLanes (includes cross-lane support
- * bonuses such as Amplification Device) and return the final OptimalSolution.
- * This corrects for effects that raw-point arithmetic misses.
- */
-function finalizeResult(
+function computeSolutionStats(
   lanes: Lane[],
   placements: Placement[],
-  spareEnergy: number,
   finalHandCount: number,
-): OptimalSolution {
+): SolutionStats {
   const simLanes = simulatePlacements(lanes, placements)
   const summaries = summarizeLanes(simLanes, { handEnergyCount: finalHandCount })
-  const remaining = Math.max(0, sum(summaries.map((s) => s.deficit)))
-  return {
-    possible: remaining === 0,
-    placements,
-    totalEnergyUsed: placements.length,
-    remainingDeficit: remaining,
-    spareEnergy,
-  }
+  const strengthGenerated = sum(summaries.map((s) => s.strength))
+  const damageDealt = sum(summaries.map((s) => s.surplus))
+  const damageReceived = sum(summaries.map((s) => s.deficit))
+  const energiesUsed = placements.length
+  const efficiencyRatio = strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0
+  return { energiesUsed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio }
 }
 
-// ── Least-cards strategy ───────────────────────────────────────────────────
-
-/**
- * Greedy minimum-card solver.
- * - Processes lanes highest-deficit first.
- * - Most-constrained slots first within each lane.
- * - Highest-point compatible card first.
- * - Stop condition uses actual computeLaneAttackStrength (not raw points)
- *   so OC/pair/effect bonuses are respected.
- * - Final pass/fail is verified via the full summarizeLanes to include
- *   cross-lane support effects (e.g. Amplification Device).
- */
-function solveLeastCards(
+function toRanked(
+  placements: Placement[],
   lanes: Lane[],
-  laneSummaries: LaneSummary[],
-  energies: Energy[],
-): OptimalSolution {
-  const pool: { color: string; point: number }[] = energies
-    .flatMap((e) =>
-      Array<{ color: string; point: number }>(e.count).fill({ color: e.color, point: e.point }),
-    )
-    .sort((a, b) => b.point - a.point)
-
-  const handEnergyCount = pool.length
-  const placements: Placement[] = []
-  const constraintOf = (color: string) => (color === 'orange' ? 0 : color === 'blue' ? 1 : 2)
-
-  const laneOrder = [...laneSummaries.map((s, i) => ({ i, deficit: s.deficit }))].sort(
-    (a, b) => b.deficit - a.deficit,
-  )
-
-  for (const { i: laneIndex, deficit } of laneOrder) {
-    if (deficit <= 0) continue
-
-    const lane = lanes[laneIndex]
-    const mutableCells = cloneLaneCells(lane.cells)
-
-    const emptySlots: EmptySlot[] = []
-    for (const [ci, cell] of lane.cells.entries()) {
-      if (!cell || cell.unitType !== 'attack') continue
-      for (const [si, slotColor] of cell.slots.entries()) {
-        if (cell.loadedEnergy[si] === null) emptySlots.push({ cellIndex: ci, slotIndex: si, slotColor })
-      }
-    }
-
-    emptySlots.sort((a, b) => {
-      const ca = constraintOf(a.slotColor), cb = constraintOf(b.slotColor)
-      if (ca !== cb) return ca - cb
-      const bA = Math.max(0, ...pool.filter((c) => canDropEnergyInSlot(c.color, a.slotColor)).map((c) => c.point))
-      const bB = Math.max(0, ...pool.filter((c) => canDropEnergyInSlot(c.color, b.slotColor)).map((c) => c.point))
-      return bB - bA
-    })
-
-    for (const slot of emptySlots) {
-      // Use actual computed strength as the stop condition (accounts for OC/pair bonuses).
-      if (computeLaneAttackStrength(mutableCells, laneIndex, handEnergyCount) >= lane.goal) break
-      const idx = pool.findIndex((c) => canDropEnergyInSlot(c.color, slot.slotColor))
-      if (idx === -1) continue
-      const [card] = pool.splice(idx, 1)
-      mutableCells[slot.cellIndex]!.loadedEnergy[slot.slotIndex] = { color: card.color, point: card.point } as LoadedEnergy
-      placements.push({ laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point })
-    }
+  totalHandCount: number,
+): RankedSolution {
+  const finalHandCount = totalHandCount - placements.length
+  const stats = computeSolutionStats(lanes, placements, finalHandCount)
+  return {
+    placements,
+    possible: stats.damageReceived === 0,
+    totalEnergyUsed: placements.length,
+    remainingDeficit: stats.damageReceived,
+    spareEnergy: totalHandCount - placements.length,
+    stats,
   }
-
-  return finalizeResult(lanes, placements, pool.length, handEnergyCount - placements.length)
 }
 
-// ── Efficiency solver (recursive backtracking) ─────────────────────────────
+// ── Unified global backtracking solver ────────────────────────────────────
+
+type GlobalSlot = {
+  laneIndex: number
+  cellIndex: number
+  slotIndex: number
+  slotColor: string
+}
 
 type SearchCard = { color: string; point: number }
-type EmptySlot = { cellIndex: number; slotIndex: number; slotColor: string }
 
 /** Shallow-clone a lane's cell array so loadedEnergy arrays can be safely mutated. */
 function cloneLaneCells(cells: (LaneUnit | null)[]): (LaneUnit | null)[] {
@@ -295,62 +250,62 @@ function computeLaneAttackStrength(
 }
 
 /**
- * Recursive backtracking search.
- * Mutates `cells` in place, restoring on backtrack.
- * Updates `bestRef.value` whenever a shorter solution is found.
+ * Global recursive backtracking across all empty attack slots in all lanes.
+ * Records every complete assignment (all slots processed or pool exhausted).
+ * `budget` limits total recursive calls to keep it performant.
  */
-function searchLanePlacements(
-  cells: (LaneUnit | null)[],
-  laneIndex: number,
-  emptySlots: EmptySlot[],
+function searchGlobal(
+  allSlots: GlobalSlot[],
   slotIdx: number,
+  mutableLaneCells: Map<number, (LaneUnit | null)[]>,
   pool: SearchCard[],
   placements: Placement[],
-  goal: number,
+  collector: Placement[][],
+  budget: { remaining: number },
   handEnergyCount: number,
-  bestRef: { value: Placement[] | null },
 ): void {
-  // Check if goal is already met.
-  if (computeLaneAttackStrength(cells, laneIndex, handEnergyCount) >= goal) {
-    if (!bestRef.value || placements.length < bestRef.value.length) {
-      bestRef.value = [...placements]
-    }
+  if (budget.remaining <= 0) return
+  budget.remaining--
+
+  // All slots processed — record this assignment
+  if (slotIdx >= allSlots.length || pool.length === 0) {
+    collector.push([...placements])
     return
   }
 
-  if (slotIdx >= emptySlots.length) return
-  if (bestRef.value && placements.length >= bestRef.value.length) return
-
-  const slot = emptySlots[slotIdx]
-  const slotColor = slot.slotColor
+  const slot = allSlots[slotIdx]
+  const cells = mutableLaneCells.get(slot.laneIndex)!
   const cell = cells[slot.cellIndex]
   if (!cell) {
-    searchLanePlacements(cells, laneIndex, emptySlots, slotIdx + 1, pool, placements, goal, handEnergyCount, bestRef)
+    searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, placements, collector, budget, handEnergyCount)
     return
   }
 
-  // Build unique compatible options sorted by marginal strength contribution (desc).
-  const baseStrength = computeLaneAttackStrength(cells, laneIndex, handEnergyCount)
   const tried = new Set<string>()
-  const options: { card: SearchCard; pidx: number; contrib: number }[] = []
+  const options: { card: SearchCard; pidx: number }[] = []
 
   for (let i = 0; i < pool.length; i++) {
     const card = pool[i]
-    if (!canDropEnergyInSlot(card.color, slotColor)) continue
+    if (!canDropEnergyInSlot(card.color, slot.slotColor)) continue
     const key = `${card.color}:${card.point}`
     if (tried.has(key)) continue
     tried.add(key)
-
-    const prev = cell.loadedEnergy[slot.slotIndex]
-    cell.loadedEnergy[slot.slotIndex] = { color: card.color, point: card.point } as LoadedEnergy
-    const contrib = computeLaneAttackStrength(cells, laneIndex, handEnergyCount) - baseStrength
-    cell.loadedEnergy[slot.slotIndex] = prev
-    options.push({ card, pidx: i, contrib })
+    options.push({ card, pidx: i })
   }
-  options.sort((a, b) => b.contrib - a.contrib)
+
+  // Sort options by marginal strength contribution (desc) for better pruning
+  const baseStrength = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount)
+  options.sort((a, b) => {
+    const prev = cell.loadedEnergy[slot.slotIndex]
+    cell.loadedEnergy[slot.slotIndex] = { color: a.card.color, point: a.card.point } as LoadedEnergy
+    const contribA = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount) - baseStrength
+    cell.loadedEnergy[slot.slotIndex] = { color: b.card.color, point: b.card.point } as LoadedEnergy
+    const contribB = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount) - baseStrength
+    cell.loadedEnergy[slot.slotIndex] = prev
+    return contribB - contribA
+  })
 
   for (const { card } of options) {
-    // Re-find the card index (pool is passed by spread copy at each level, but we reuse the same array)
     const idx = pool.findIndex((c) => c.color === card.color && c.point === card.point)
     if (idx === -1) continue
 
@@ -358,76 +313,139 @@ function searchLanePlacements(
     cell.loadedEnergy[slot.slotIndex] = { color: card.color, point: card.point } as LoadedEnergy
     pool.splice(idx, 1)
 
-    searchLanePlacements(
-      cells, laneIndex, emptySlots, slotIdx + 1, pool,
-      [...placements, { laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point }],
-      goal, handEnergyCount, bestRef,
+    searchGlobal(
+      allSlots, slotIdx + 1, mutableLaneCells, pool,
+      [...placements, { laneIndex: slot.laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point }],
+      collector, budget, handEnergyCount,
     )
 
     pool.splice(idx, 0, card)
     cell.loadedEnergy[slot.slotIndex] = prev
   }
 
-  // Also try skipping this slot entirely.
-  searchLanePlacements(cells, laneIndex, emptySlots, slotIdx + 1, pool, placements, goal, handEnergyCount, bestRef)
+  // Also try skipping this slot
+  searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, placements, collector, budget, handEnergyCount)
 }
 
-/**
- * Efficiency solver: uses recursive backtracking per lane to find the minimum
- * number of cards while maximising effective strength (including OC/pair/etc.).
- */
-function solveEfficiency(
+function rankSolutions(
+  rawSolutions: Placement[][],
   lanes: Lane[],
-  laneSummaries: LaneSummary[],
+  totalHandCount: number,
+  strategy: SolverStrategy,
+  max: number,
+): RankedSolution[] {
+  // Convert and deduplicate
+  const seen = new Set<string>()
+  const ranked: RankedSolution[] = []
+
+  for (const placements of rawSolutions) {
+    const key = [...placements]
+      .sort((a, b) =>
+        a.laneIndex !== b.laneIndex ? a.laneIndex - b.laneIndex :
+        a.cellIndex !== b.cellIndex ? a.cellIndex - b.cellIndex :
+        a.slotIndex - b.slotIndex,
+      )
+      .map((p) => `${p.laneIndex}:${p.cellIndex}:${p.slotIndex}:${p.color}:${p.point}`)
+      .join('|')
+
+    if (seen.has(key)) continue
+    seen.add(key)
+    ranked.push(toRanked(placements, lanes, totalHandCount))
+  }
+
+  // Sort by strategy criterion
+  if (strategy === 'least-cards') {
+    ranked.sort((a, b) =>
+      a.totalEnergyUsed !== b.totalEnergyUsed
+        ? a.totalEnergyUsed - b.totalEnergyUsed
+        : b.stats.strengthGenerated - a.stats.strengthGenerated,
+    )
+  } else if (strategy === 'efficiency') {
+    ranked.sort((a, b) =>
+      a.stats.efficiencyRatio !== b.stats.efficiencyRatio
+        ? a.stats.efficiencyRatio - b.stats.efficiencyRatio
+        : b.stats.strengthGenerated - a.stats.strengthGenerated,
+    )
+  } else {
+    // max-damage: highest total strength first
+    ranked.sort((a, b) =>
+      b.stats.strengthGenerated !== a.stats.strengthGenerated
+        ? b.stats.strengthGenerated - a.stats.strengthGenerated
+        : a.totalEnergyUsed - b.totalEnergyUsed,
+    )
+  }
+
+  return ranked.slice(0, max)
+}
+
+export function solveMultiple(
+  lanes: Lane[],
+  _laneSummaries: LaneSummary[],
   energies: Energy[],
-): OptimalSolution {
+  strategy: SolverStrategy = 'least-cards',
+  max = 5,
+): RankedSolution[] {
   const pool: SearchCard[] = energies.flatMap((e) =>
     Array<SearchCard>(e.count).fill({ color: e.color, point: e.point }),
   )
+  const totalHandCount = pool.length
 
-  const placements: Placement[] = []
-  const handEnergyCount = pool.length
-
-  const laneOrder = [...laneSummaries.map((s, i) => ({ i, deficit: s.deficit }))]
-    .sort((a, b) => b.deficit - a.deficit)
-
-  for (const { i: laneIndex, deficit } of laneOrder) {
-    if (deficit <= 0) continue
-
-    const lane = lanes[laneIndex]
-    const goal = lane.goal
-
-    const emptySlots: EmptySlot[] = []
+  // Collect all empty attack slots across all lanes
+  const constraintOf = (color: string) => (color === 'orange' ? 0 : color === 'blue' ? 1 : 2)
+  const allSlots: GlobalSlot[] = []
+  for (const [laneIndex, lane] of lanes.entries()) {
     for (const [ci, cell] of lane.cells.entries()) {
       if (!cell || cell.unitType !== 'attack') continue
       for (const [si, slotColor] of cell.slots.entries()) {
-        if (cell.loadedEnergy[si] === null) emptySlots.push({ cellIndex: ci, slotIndex: si, slotColor })
-      }
-    }
-
-    if (emptySlots.length === 0) continue
-
-    // Sort: most constrained first so orange-only slots get their specific energies.
-    const constraintOf = (color: string) => (color === 'orange' ? 0 : color === 'blue' ? 1 : 2)
-    emptySlots.sort((a, b) => constraintOf(a.slotColor) - constraintOf(b.slotColor))
-
-    const mutableCells = cloneLaneCells(lane.cells)
-    const bestRef: { value: Placement[] | null } = { value: null }
-
-    searchLanePlacements(mutableCells, laneIndex, emptySlots, 0, pool, [], goal, handEnergyCount, bestRef)
-
-    if (bestRef.value) {
-      placements.push(...bestRef.value)
-      for (const p of bestRef.value) {
-        const idx = pool.findIndex((c) => c.color === p.color && c.point === p.point)
-        if (idx !== -1) pool.splice(idx, 1)
+        if (cell.loadedEnergy[si] === null) {
+          allSlots.push({ laneIndex, cellIndex: ci, slotIndex: si, slotColor })
+        }
       }
     }
   }
+  allSlots.sort((a, b) => constraintOf(a.slotColor) - constraintOf(b.slotColor))
 
-  return finalizeResult(lanes, placements, pool.length, handEnergyCount - placements.length)
+  if (allSlots.length === 0 || pool.length === 0) {
+    return [toRanked([], lanes, totalHandCount)]
+  }
+
+  // Build mutable per-lane cell clones for the search
+  const mutableLaneCells = new Map<number, (LaneUnit | null)[]>()
+  for (const [i, lane] of lanes.entries()) {
+    mutableLaneCells.set(i, cloneLaneCells(lane.cells))
+  }
+
+  const collector: Placement[][] = []
+  const budget = { remaining: 50_000 }
+
+  searchGlobal(allSlots, 0, mutableLaneCells, [...pool], [], collector, budget, totalHandCount)
+
+  // Always include the empty solution as a baseline
+  if (!collector.some((p) => p.length === 0)) collector.push([])
+
+  return rankSolutions(collector, lanes, totalHandCount, strategy, max)
 }
 
+/** Kept for the reactive isPossible check in App.tsx. */
+export function solveOptimal(
+  lanes: Lane[],
+  laneSummaries: LaneSummary[],
+  energies: Energy[],
+  strategy: SolverStrategy = 'least-cards',
+): OptimalSolution {
+  const results = solveMultiple(lanes, laneSummaries, energies, strategy, 1)
+  if (results.length === 0) {
+    return { possible: false, placements: [], totalEnergyUsed: 0, remainingDeficit: 0, spareEnergy: 0 }
+  }
+  const r = results[0]
+  return {
+    possible: r.possible,
+    placements: r.placements,
+    totalEnergyUsed: r.totalEnergyUsed,
+    remainingDeficit: r.remainingDeficit,
+    spareEnergy: r.spareEnergy,
+  }
+}
 
 export function buildBattleContext(energies: Energy[]): BattleContext {
   return { handEnergyCount: sum(energies.map((e) => e.count)) }
