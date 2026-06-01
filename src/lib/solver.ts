@@ -353,27 +353,24 @@ function rankSolutions(
     ranked.push(toRanked(placements, lanes, totalHandCount))
   }
 
-  // Sort by strategy criterion
-  if (strategy === 'least-cards') {
-    ranked.sort((a, b) =>
-      a.totalEnergyUsed !== b.totalEnergyUsed
-        ? a.totalEnergyUsed - b.totalEnergyUsed
-        : b.stats.strengthGenerated - a.stats.strengthGenerated,
-    )
-  } else if (strategy === 'efficiency') {
-    ranked.sort((a, b) =>
-      a.stats.efficiencyRatio !== b.stats.efficiencyRatio
-        ? a.stats.efficiencyRatio - b.stats.efficiencyRatio
-        : b.stats.strengthGenerated - a.stats.strengthGenerated,
-    )
-  } else {
-    // max-damage: highest total strength first
-    ranked.sort((a, b) =>
-      b.stats.strengthGenerated !== a.stats.strengthGenerated
-        ? b.stats.strengthGenerated - a.stats.strengthGenerated
-        : a.totalEnergyUsed - b.totalEnergyUsed,
-    )
-  }
+  // Sort: possible solutions always before impossible ones, then by strategy criterion.
+  ranked.sort((a, b) => {
+    if (a.possible !== b.possible) return a.possible ? -1 : 1
+
+    if (strategy === 'least-cards') {
+      if (a.totalEnergyUsed !== b.totalEnergyUsed) return a.totalEnergyUsed - b.totalEnergyUsed
+      return b.stats.strengthGenerated - a.stats.strengthGenerated
+    }
+    if (strategy === 'efficiency') {
+      if (a.stats.efficiencyRatio !== b.stats.efficiencyRatio)
+        return a.stats.efficiencyRatio - b.stats.efficiencyRatio
+      return b.stats.strengthGenerated - a.stats.strengthGenerated
+    }
+    // max-damage: highest total strength first, then fewest cards
+    if (b.stats.strengthGenerated !== a.stats.strengthGenerated)
+      return b.stats.strengthGenerated - a.stats.strengthGenerated
+    return a.totalEnergyUsed - b.totalEnergyUsed
+  })
 
   return ranked.slice(0, max)
 }
