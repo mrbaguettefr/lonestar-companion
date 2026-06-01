@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { getLaneName } from '../lib/gameData'
-import { computeSolutionSteps, type RankedSolution, type SolverStrategy } from '../lib/solver'
+import { computeSolutionSteps, solutionScore, sortByStrategy, type RankedSolution, type SolverStrategy } from '../lib/solver'
 import type { Lane } from '../types/lonestar'
 import { Button } from './ui/button'
 
@@ -39,9 +39,11 @@ export function SolutionPanel({
           onChange={(e) => onStrategyChange(e.target.value as SolverStrategy)}
           aria-label="Solver strategy"
         >
+          <option value="best">Best overall</option>
           <option value="least-cards">Least cards used</option>
           <option value="efficiency">Maximize strength efficiency</option>
           <option value="max-damage">Maximize damage</option>
+          <option value="max-energy">Maximize energy generated</option>
         </select>
         <div className="solution-buttons">
           <Button className="min-h-13 text-lg" size="lg" type="button" onClick={onSolve}>
@@ -56,7 +58,8 @@ export function SolutionPanel({
       <div className="solution-copy" aria-live="polite">
         {hasSolved && solvedResults.length > 0 ? (
           <ol className="solution-list">
-            {solvedResults.map((result, idx) => {
+            {sortByStrategy(solvedResults, solverStrategy).map((result, displayIdx) => {
+              const idx = solvedResults.indexOf(result)
               const isLoaded = idx === loadedSolutionIdx
               const isExpanded = expandedIdx === idx
               const laneIndices = [...new Set(result.placements.map((p) => p.laneIndex))]
@@ -70,7 +73,7 @@ export function SolutionPanel({
                 <li key={idx} className={`solution-item${isLoaded ? ' solution-item--loaded' : ''}`}>
                   <div className="solution-item-header">
                     <span className="solution-item-title">
-                      #{idx + 1}
+                      #{displayIdx + 1}
                       {result.possible ? (
                         <span className="solution-badge solution-badge--ok">Goals met</span>
                       ) : (
@@ -102,9 +105,15 @@ export function SolutionPanel({
                   </div>
 
                   <div className="solution-stats">
+                    {solverStrategy === 'best' && (
+                      <span>Score: {solutionScore(result).toFixed(1)}</span>
+                    )}
                     <span>Cards: {result.stats.energiesUsed}</span>
                     <span>Strength: {result.stats.strengthGenerated}</span>
                     <span>Surplus: +{result.stats.damageDealt}</span>
+                    {result.stats.energyGenerated > 0 && (
+                      <span>Generated: +{result.stats.energyGenerated}</span>
+                    )}
                     {result.stats.damageReceived > 0 && (
                       <span className="solution-stat--warn">
                         Short: {result.stats.damageReceived}
