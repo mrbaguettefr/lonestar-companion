@@ -197,11 +197,11 @@ function collectLoadedPlacements(lanes: Lane[]): Placement[] {
   )
 }
 
-function countGeneratedEnergiesInCurrentBoard(lanes: Lane[]): number {
+function totalGeneratedEnergyPointsInCurrentBoard(lanes: Lane[]): number {
   return lanes.reduce((total, lane) => total + lane.cells.reduce((laneTotal, cell) => {
     if (!cell || cell.unitType !== 'support') return laneTotal
 
-    let generatedCount = 0
+    let generatedPoints = 0
     const replayUnit: LaneUnit = {
       ...cell,
       loadedEnergy: Array(cell.slots.length).fill(null),
@@ -210,11 +210,11 @@ function countGeneratedEnergiesInCurrentBoard(lanes: Lane[]): number {
     cell.loadedEnergy.forEach((energy, slotIndex) => {
       if (!energy) return
       const generated = triggerSupportOnLoadForSlot(replayUnit, slotIndex, energy)
-      generatedCount += generated.length
+      generatedPoints += sum(generated.map((generatedEnergy) => generatedEnergy.point))
       replayUnit.loadedEnergy[slotIndex] = energy
     })
 
-    return laneTotal + generatedCount
+    return laneTotal + generatedPoints
   }, 0), 0)
 }
 
@@ -236,7 +236,7 @@ export function evaluateCurrentBoard(
     damageDealt,
     damageReceived,
     efficiencyRatio: strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0,
-    energyGenerated: countGeneratedEnergiesInCurrentBoard(lanes) + bonusEnergyGenerated,
+    energyGenerated: totalGeneratedEnergyPointsInCurrentBoard(lanes) + bonusEnergyGenerated,
   }
 
   return {
@@ -439,14 +439,14 @@ function evaluateSolution(
   }))
   let hand = initialEnergies.map((e) => ({ ...e }))
   let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id), 0) + 1
-  let energyGeneratedCount = 0
+  let energyGeneratedPoints = 0
   const placements: Placement[] = []
 
   for (const action of actions) {
     if (action.kind === 'activation') {
       const result = applyActivationEffect(action.unit, hand)
       if (result !== null) {
-        energyGeneratedCount += result.energyGenerated
+        energyGeneratedPoints += result.energyGenerated
         hand = result.energies
       }
     } else {
@@ -462,7 +462,7 @@ function evaluateSolution(
         const generated = triggerSupportOnLoadForSlot(cell, p.slotIndex, loaded)
         for (const gen of generated) {
           hand = [...hand, { id: nextGeneratedId++, color: gen.color, point: gen.point }]
-          energyGeneratedCount++
+          energyGeneratedPoints += gen.point
         }
       }
     }
@@ -477,7 +477,7 @@ function evaluateSolution(
   const energyConsumed = sum(placements.map((p) => p.point))
   const efficiencyRatio = strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0
 
-  const stats: SolutionStats = { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated: energyGeneratedCount }
+  const stats: SolutionStats = { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated: energyGeneratedPoints }
   return { stats, outcomeKey: solutionOutcomeKey(simLanes, summaries, stats), finalHandCount }
 }
 
@@ -676,7 +676,7 @@ function searchGlobal(
 export function solutionScore(s: RankedSolution): number {
   if (!s.possible) return 0
   const ratio = s.stats.energiesUsed > 0 ? s.stats.strengthGenerated / s.stats.energiesUsed : 0
-  return ratio * 2 + s.stats.energyGenerated * 1 - s.stats.damageDealt * 0.75 - s.stats.energyConsumed * 0.1
+  return ratio * 2 + s.stats.energyGenerated * 1.5 - s.stats.damageDealt * 2 - s.stats.energyConsumed * 0.1
 }
 
 export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStrategy): RankedSolution[] {
