@@ -831,8 +831,8 @@ function App() {
     }
   }
 
-  function fastImportBleachingTapPair() {
-    fetch('/configs/bleaching-tap-pair.json')
+  function fastImportConfig(filename: string) {
+    fetch(`/configs/${filename}`)
       .then((response) => {
         if (!response.ok) throw new Error(`Unable to load config: ${response.status}`)
         return response.json() as Promise<ConfigExport>
@@ -846,6 +846,11 @@ function App() {
         setIsImportOpen(true)
       })
   }
+
+  const fastloadConfigs = [
+    { label: 'Bleaching Tap Pair', filename: 'bleaching-tap-pair.json' },
+    { label: 'Bleaching Tap Pair 2', filename: 'bleaching-tap-pair-2.json' },
+  ]
 
   // ── Dialog computed values ──────────────────────────────────────────────
 
@@ -877,7 +882,8 @@ function App() {
         copyFeedback={copyFeedback}
         onExport={exportToClipboard}
         onImport={openImportDialog}
-        onFastImport={fastImportBleachingTapPair}
+        onFastImportConfig={fastImportConfig}
+        fastloadConfigs={fastloadConfigs}
         canUndo={undoStack.length > 0}
         canRedo={redoStack.length > 0}
         canFastImport={dataStatus === 'ready'}

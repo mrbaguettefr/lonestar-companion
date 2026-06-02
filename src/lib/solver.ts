@@ -624,6 +624,7 @@ function searchGlobal(
   allSlots: GlobalSlot[],
   slotIdx: number,
   mutableLaneCells: Map<number, (LaneUnit | null)[]>,
+  laneGoals: Map<number, number>,
   pool: SearchCard[],
   actions: SolverAction[],
   remainingActivatable: ActivatableUnit[],
@@ -650,7 +651,7 @@ function searchGlobal(
       const newPool = activated.map((e) => ({ color: e.color, point: e.point }))
       const activationAction: SolverAction = { kind: 'activation', unit: act.unit, laneIndex: act.laneIndex, cellIndex: act.cellIndex }
       const newRemaining = remainingActivatable.filter((a) => a !== act)
-      searchGlobal(allSlots, slotIdx, mutableLaneCells, newPool, [...actions, activationAction], newRemaining, collector, budget, handEnergyCount)
+      searchGlobal(allSlots, slotIdx, mutableLaneCells, laneGoals, newPool, [...actions, activationAction], newRemaining, collector, budget, handEnergyCount)
     }
   }
 
@@ -658,8 +659,20 @@ function searchGlobal(
   const cells = mutableLaneCells.get(slot.laneIndex)!
   const cell = cells[slot.cellIndex]
   if (!cell) {
-    searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
+    searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, laneGoals, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
     return
+  }
+
+  // Goal-aware pruning: if this is an attack slot and the lane goal is already
+  // met, skip it immediately — loading more attack energy can only create
+  // wasteful surplus and burns budget exploring redundant branches.
+  if (slot.unitType === 'attack') {
+    const goal = laneGoals.get(slot.laneIndex) ?? 0
+    const currentStrength = computeLaneAttackStrength(cells, slot.laneIndex, handEnergyCount)
+    if (currentStrength >= goal) {
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, laneGoals, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
+      return
+    }
   }
 
   const tried = new Set<string>()
@@ -701,10 +714,10 @@ function searchGlobal(
       const generated = triggerSupportOnLoadForSlot(cell as LaneUnit, slot.slotIndex, { color: card.color, point: card.point })
       const newPool = [...pool.slice(0, idx), ...pool.slice(idx + 1)]
       for (const g of generated) newPool.push({ color: g.color, point: g.point })
-      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, newPool, [...actions, placementAction], remainingActivatable, collector, budget, handEnergyCount)
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, laneGoals, newPool, [...actions, placementAction], remainingActivatable, collector, budget, handEnergyCount)
     } else {
       pool.splice(idx, 1)
-      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, [...actions, placementAction], remainingActivatable, collector, budget, handEnergyCount)
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, laneGoals, pool, [...actions, placementAction], remainingActivatable, collector, budget, handEnergyCount)
       pool.splice(idx, 0, card)
     }
 
@@ -712,7 +725,7 @@ function searchGlobal(
   }
 
   // Also try skipping this slot.
-  searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
+  searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, laneGoals, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
 }
 
 /**
@@ -852,7 +865,9 @@ export function solveMultiple(
     mutableLaneCells.set(i, cloneLaneCells(lane.cells))
   }
 
-  searchGlobal(allSlots, 0, mutableLaneCells, basePool, [], activatable, collector, budget, totalHandCount)
+  const laneGoals = new Map<number, number>(lanes.map((lane, i) => [i, lane.goal]))
+
+  searchGlobal(allSlots, 0, mutableLaneCells, laneGoals, basePool, [], activatable, collector, budget, totalHandCount)
 
   // Always include the empty solution as a baseline
   if (!collector.some((c) => c.actions.length === 0)) {
