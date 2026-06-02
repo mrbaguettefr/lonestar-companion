@@ -68,6 +68,13 @@ function createHandEnergy(color: string, point: number): Energy {
   return { id: Date.now() + Math.random(), color, point }
 }
 
+function resetLaneActivations(lanes: Lane[]): Lane[] {
+  return lanes.map((lane) => ({
+    ...lane,
+    cells: lane.cells.map((cell) => (cell ? { ...cell, activateCount: 0 } : cell)),
+  }))
+}
+
 type HistoryEntry = {
   lanes: Lane[]
   energies: Energy[]
@@ -98,8 +105,6 @@ function App() {
   const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('best')
   const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
   const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
-  const [presolvedActivationEnergyPointsGenerated, setPresolvedActivationEnergyPointsGenerated] = useState<number | null>(null)
-  const [presolvedActivationEnergyGeneratedCount, setPresolvedActivationEnergyGeneratedCount] = useState<number | null>(null)
   const [activationEnergyPointsGenerated, setActivationEnergyPointsGenerated] = useState(0)
   const [activationEnergyGeneratedCount, setActivationEnergyGeneratedCount] = useState(0)
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([])
@@ -214,8 +219,6 @@ function App() {
     setLoadedSolutionIdx(0)
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
-    setPresolvedActivationEnergyPointsGenerated(null)
-    setPresolvedActivationEnergyGeneratedCount(null)
   }
 
   function pushHistory() {
@@ -633,10 +636,8 @@ function App() {
     pushHistory()
     if (presolvedLanes !== null && presolvedEnergies !== null) {
       // Restore the exact state from before Solve was pressed (removes generated energies too)
-      setLanes(presolvedLanes)
+      setLanes(resetLaneActivations(presolvedLanes))
       setEnergies(presolvedEnergies)
-      setActivationEnergyPointsGenerated(presolvedActivationEnergyPointsGenerated ?? 0)
-      setActivationEnergyGeneratedCount(presolvedActivationEnergyGeneratedCount ?? 0)
     } else {
       // Unload all slots and return energies to hand
       const toReturn: LoadedEnergy[] = lanes.flatMap((lane) =>
@@ -648,19 +649,25 @@ function App() {
         current.map((lane) => ({
           ...lane,
           cells: lane.cells.map((cell) =>
-            cell ? { ...cell, loadedEnergy: Array(cell.slots.length).fill(null) } : cell,
+            cell
+              ? {
+                  ...cell,
+                  activateCount: 0,
+                  loadedEnergy: Array(cell.slots.length).fill(null),
+                }
+              : cell,
           ),
         })),
       )
       returnMultipleEnergiesToHand(toReturn)
     }
+    setActivationEnergyPointsGenerated(0)
+    setActivationEnergyGeneratedCount(0)
     setHasSolved(false)
     setSolvedResults([])
     setLoadedSolutionIdx(0)
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
-    setPresolvedActivationEnergyPointsGenerated(null)
-    setPresolvedActivationEnergyGeneratedCount(null)
   }
 
   function loadSolution(idx: number) {
@@ -911,8 +918,6 @@ function App() {
               const displayedFirstIdx = displayedFirst ? results.indexOf(displayedFirst) : 0
               setPresolvedLanes(lanes)
               setPresolvedEnergies(energies)
-              setPresolvedActivationEnergyPointsGenerated(activationEnergyPointsGenerated)
-              setPresolvedActivationEnergyGeneratedCount(activationEnergyGeneratedCount)
               setSolvedResults(results)
               setLoadedSolutionIdx(displayedFirstIdx)
               if (displayedFirst) applyActions(displayedFirst.actions)
