@@ -48,6 +48,7 @@ export function SolutionStatsRow({ stats, solution, label }: SolutionStatsRowPro
       <span title={`Hand total: ${stats.handEnergyPointTotal} pts; Energy in hand: ${stats.handEnergyCount}`}>
         Avg hand: {formatNumber(averageHandValue)}
       </span>
+      <span>Hand pts: {stats.handEnergyPointTotal}</span>
       <span>Strength: {stats.strengthGenerated}</span>
       <span>Surplus: +{stats.damageDealt}</span>
       {stats.damageReceived > 0 && (
