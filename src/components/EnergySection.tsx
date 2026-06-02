@@ -19,6 +19,7 @@ type EnergySectionProps = {
   onUpdateEnergy: (id: number, patch: Partial<Energy>) => void
   onDropEnergyToHand: (payload: DragPayload) => void
   onReorderEnergyInHand: (energyId: number, targetIndex: number) => void
+  canAddEnergy: boolean
 }
 
 type DialogMode = 'add' | 'edit'
@@ -40,6 +41,7 @@ export function EnergySection({
   onUpdateEnergy,
   onDropEnergyToHand,
   onReorderEnergyInHand,
+  canAddEnergy,
 }: EnergySectionProps) {
   const [dialogMode, setDialogMode] = useState<DialogMode>('add')
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -49,6 +51,7 @@ export function EnergySection({
   const [isDragOver, setIsDragOver] = useState(false)
 
   function openAddDialog() {
+    if (!canAddEnergy) return
     setDialogMode('add')
     setDraftColor('white')
     setDraftPoint(3)
@@ -66,6 +69,7 @@ export function EnergySection({
 
   function handleSubmit() {
     if (dialogMode === 'add') {
+      if (!canAddEnergy) return
       onAddEnergy({ color: draftColor, point: draftPoint })
     } else if (editingId !== null) {
       onUpdateEnergy(editingId, { color: draftColor, point: draftPoint })
@@ -91,7 +95,7 @@ export function EnergySection({
         className={`panel${isDragOver ? ' energy-drop-target' : ''}`}
         onDragOver={(event) => {
           event.preventDefault()
-          setIsDragOver(true)
+          if (!isDragOver) setIsDragOver(true)
         }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleSectionDrop}
@@ -153,8 +157,10 @@ export function EnergySection({
           <button
             type="button"
             className="energy-card energy-card-add"
+            disabled={!canAddEnergy}
             onClick={openAddDialog}
             aria-label="Add energy to hand"
+            title={canAddEnergy ? 'Add energy to hand' : 'Hand is full'}
           >
             <span className="energy-card-plus">+</span>
           </button>

@@ -9,7 +9,6 @@ type SolutionPanelProps = {
   hasSolved: boolean
   solvedResults: RankedSolution[]
   loadedSolutionIdx: number
-  isPossible: boolean
   solverStrategy: SolverStrategy
   presolvedLanes: Lane[] | null
   presolvedEnergies: Energy[] | null
@@ -22,7 +21,6 @@ export function SolutionPanel({
   hasSolved,
   solvedResults,
   loadedSolutionIdx,
-  isPossible,
   solverStrategy,
   presolvedLanes,
   presolvedEnergies,
@@ -200,9 +198,7 @@ export function SolutionPanel({
           </ol>
         ) : (
           <p className="placeholder">
-            {isPossible
-              ? 'Press Solve to automatically load the minimum energy needed to reach all goals.'
-              : 'Press Solve to place what energy is available (goals may not all be met).'}
+            Press Solve to place available energy toward the lane goals.
           </p>
         )}
       </div>

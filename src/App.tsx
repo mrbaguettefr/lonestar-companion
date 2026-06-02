@@ -28,7 +28,7 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
+import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, sortByStrategy, summarizeLanes, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
 import { IMPLEMENTED_SKILLS, applyActivationEffect, effectiveStaticPower, formatEffect, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
@@ -64,8 +64,14 @@ const unitModOptions = [
   { id: 'power-plus-1', label: 'Power +1' },
 ] satisfies Array<{ id: UnitModId; label: string }>
 
+const maxHandEnergyCount = 10
+
 function createHandEnergy(color: string, point: number): Energy {
   return { id: Date.now() + Math.random(), color, point }
+}
+
+function clampHandEnergies(energies: Energy[]): Energy[] {
+  return energies.slice(0, maxHandEnergyCount)
 }
 
 function resetLaneActivations(lanes: Lane[]): Lane[] {
@@ -102,7 +108,7 @@ function resetBoardState(lanes: Lane[], energies: Energy[]): { lanes: Lane[]; en
 
   return {
     lanes: resetLanes,
-    energies: [...energies, ...returnedEnergies],
+    energies: clampHandEnergies([...energies, ...returnedEnergies]),
   }
 }
 
@@ -141,16 +147,20 @@ function App() {
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([])
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([])
 
-  const battleContext = useMemo(() => buildBattleContext(energies), [energies])
+  const handEnergyPointTotal = useMemo(
+    () => energies.reduce((total, energy) => total + energy.point, 0),
+    [energies],
+  )
+  const handSummaryKey = `${energies.length}:${handEnergyPointTotal}`
+
+  const battleContext = useMemo(() => buildBattleContext(energies), [energies.length])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const currentEvaluation = useMemo(
     () => evaluateCurrentBoard(lanes, laneSummaries, energies, activationEnergyPointsGenerated, activationEnergyGeneratedCount),
-    [lanes, laneSummaries, energies, activationEnergyPointsGenerated, activationEnergyGeneratedCount],
+    [lanes, laneSummaries, handSummaryKey, activationEnergyPointsGenerated, activationEnergyGeneratedCount],
   )
-  const solution = useMemo(
-    () => solveOptimal(lanes, laneSummaries, energies),
-    [lanes, laneSummaries, energies],
-  )
+  const loadedSolution = solvedResults[loadedSolutionIdx] ?? null
+  const solvedIsPossible = loadedSolution?.possible ?? false
   const selectedShip = useMemo(
     () => ships.find((ship) => String(ship.id) === selectedShipId) ?? null,
     [selectedShipId, ships],
@@ -395,7 +405,7 @@ function App() {
     if (activationResult !== null) {
       setActivationEnergyPointsGenerated((current) => current + activationResult.energyPointsGenerated)
       setActivationEnergyGeneratedCount((current) => current + activationResult.energyGeneratedCount)
-      setEnergies(activationResult.energies)
+      setEnergies(clampHandEnergies(activationResult.energies))
     }
 
     setLanes((current) =>
@@ -466,11 +476,13 @@ function App() {
   }
 
   function addEnergy(spec: { color: string; point: number }) {
+    if (energies.length >= maxHandEnergyCount) return
     markInputChanged()
-    setEnergies((current) => [
-      ...current,
-      createHandEnergy(spec.color, spec.point),
-    ])
+    setEnergies((current) =>
+      current.length >= maxHandEnergyCount
+        ? current
+        : [...current, createHandEnergy(spec.color, spec.point)],
+    )
   }
 
   function updateEnergy(id: number, patch: Partial<Energy>) {
@@ -489,7 +501,6 @@ function App() {
     if (fromIndex === insertIndex) return
 
     pushHistory()
-    markInputChanged()
     setEnergies((current) => {
       const currentFromIndex = current.findIndex((energy) => energy.id === energyId)
       if (currentFromIndex === -1) return current
@@ -519,6 +530,7 @@ function App() {
     setEnergies((current) => {
       let updated = [...current]
       for (const e of toReturn) {
+        if (updated.length >= maxHandEnergyCount) break
         updated = [...updated, createHandEnergy(e.color, e.point)]
       }
       return updated
@@ -567,6 +579,14 @@ function App() {
       const sourceCell = lanes[payload.laneIndex]?.cells[payload.cellIndex]
       const sourceSlotColor = sourceCell?.slots[payload.slotIndex]
       canSwapToSource = Boolean(sourceSlotColor && canDropEnergyInSlot(displaced.color, sourceSlotColor))
+    }
+
+    if (
+      displaced &&
+      energies.length >= maxHandEnergyCount &&
+      (payload.type === 'energy-hand' || (payload.type === 'energy-slot' && !canSwapToSource))
+    ) {
+      return
     }
 
     setLanes((current) =>
@@ -629,11 +649,12 @@ function App() {
       if (targetCell.unitType === 'support') {
         const generated = triggerSupportOnLoadForSlot(targetCell, toSlot, energyToLoad)
         for (const gen of generated) {
+          if (updated.length >= maxHandEnergyCount) break
           updated = [...updated, createHandEnergy(gen.color, gen.point)]
         }
       }
 
-      return updated
+      return clampHandEnergies(updated)
     })
   }
 
@@ -661,7 +682,9 @@ function App() {
     )
 
     setEnergies((current) => {
-      return [...current, createHandEnergy(color, point)]
+      return current.length >= maxHandEnergyCount
+        ? current
+        : [...current, createHandEnergy(color, point)]
     })
   }
 
@@ -672,7 +695,7 @@ function App() {
     pushHistory()
     const replay = replayActions(lanes, energies, actions)
     setLanes(replay.lanes)
-    setEnergies(replay.energies)
+    setEnergies(clampHandEnergies(replay.energies))
     setActivationEnergyPointsGenerated((current) => current + replay.activationEnergyPointsGenerated)
     setActivationEnergyGeneratedCount((current) => current + replay.activationEnergyGeneratedCount)
   }
@@ -700,7 +723,7 @@ function App() {
 
     const replay = replayActions(presolvedLanes, presolvedEnergies, solution.actions)
     setLanes(replay.lanes)
-    setEnergies(replay.energies)
+    setEnergies(clampHandEnergies(replay.energies))
     setLoadedSolutionIdx(idx)
   }
 
@@ -728,7 +751,7 @@ function App() {
             : null,
         ),
       })),
-      energies: resetState.energies,
+      energies: clampHandEnergies(resetState.energies),
     }
     const json = JSON.stringify(config, null, 2)
     navigator.clipboard.writeText(json).then(() => {
@@ -804,7 +827,7 @@ function App() {
     const resetState = resetBoardState(restoredLanes, config.energies)
     setSelectedShipId(config.shipId ?? '')
     setLanes(resetState.lanes)
-    setEnergies(resetState.energies)
+    setEnergies(clampHandEnergies(resetState.energies))
     setImportError(null)
   }
 
@@ -864,7 +887,7 @@ function App() {
     <main className="app-shell">
       <AppHeader
         hasSolved={hasSolved}
-        isPossible={solution.possible}
+        isPossible={solvedIsPossible}
         copyFeedback={copyFeedback}
         onExport={exportToClipboard}
         onImport={openImportDialog}
@@ -923,13 +946,13 @@ function App() {
             onUpdateEnergy={updateEnergy}
             onDropEnergyToHand={dropEnergyToHand}
             onReorderEnergyInHand={reorderEnergyInHand}
+            canAddEnergy={energies.length < maxHandEnergyCount}
           />
           <GoalsSection lanes={lanes} laneSummaries={laneSummaries} onUpdateGoal={updateGoal} />
           <SolutionPanel
             hasSolved={hasSolved}
             solvedResults={solvedResults}
             loadedSolutionIdx={loadedSolutionIdx}
-            isPossible={solution.possible}
             solverStrategy={solverStrategy}
             onStrategyChange={setSolverStrategy}
             onSolve={() => {
