@@ -12,6 +12,7 @@ export type UnitStrengthBreakdown = {
   cellIndex: number
   basePoints: number
   staticPower: number
+  supportPower: number
   effectBonus: number
   isDoubled: boolean
   total: number

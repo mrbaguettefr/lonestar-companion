@@ -1,5 +1,5 @@
 import type { BattleContext, Energy, Lane, LaneUnit, LaneSummary, LoadedEnergy } from '../types/lonestar'
-import { AUTO_ACTIVATION_SKILLS, computeUnitStrength, computeSupportPassiveBonus, triggerActivation, triggerSupportOnLoad, type EffectContext } from './effects'
+import { AUTO_ACTIVATION_SKILLS, computeUnitStrength, computeSupportPassiveBonus, triggerActivation, triggerSupportOnLoadForSlot, type EffectContext } from './effects'
 import { canDropEnergyInSlot } from './gameData'
 import { sum } from './numbers'
 
@@ -35,6 +35,7 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
           cellIndex,
           basePoints: 0,
           staticPower: 0,
+          supportPower: 0,
           effectBonus: 0,
           isDoubled: false,
           total: 0,
@@ -97,6 +98,7 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
       if (supportBonus === 0) return bd
       return {
         ...bd,
+        supportPower: bd.supportPower + supportBonus,
         effectBonus: bd.effectBonus + supportBonus,
         total: bd.total + supportBonus,
         effectLabel: bd.effectLabel
@@ -154,23 +156,88 @@ export type RankedSolution = {
 type EvaluatedSolution = {
   stats: SolutionStats
   outcomeKey: string
+  finalHandCount: number
+}
+
+export type PlacementReplayStep = {
+  placement: Placement
+  unit: LaneUnit
+  slotColor: string
+  generatedEnergies: LoadedEnergy[]
 }
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-/** Apply a placement list to a cloned lane array (non-mutating). */
-function simulatePlacements(lanes: Lane[], placements: Placement[]): Lane[] {
-  return lanes.map((lane, li) => ({
+function addEnergyToHand(energies: Energy[], loaded: LoadedEnergy, idSeed: number): Energy[] {
+  const existing = energies.find((e) => e.color === loaded.color && e.point === loaded.point)
+  if (existing) {
+    return energies.map((e) => (
+      e === existing ? { ...e, count: e.count + 1 } : e
+    ))
+  }
+  return [...energies, { id: idSeed, color: loaded.color, point: loaded.point, count: 1 }]
+}
+
+function consumeEnergyFromHand(energies: Energy[], loaded: LoadedEnergy): Energy[] {
+  const idx = energies.findIndex(
+    (e) => e.color === loaded.color && e.point === loaded.point && e.count > 0,
+  )
+  if (idx === -1) return energies
+  return energies
+    .map((e, i) => (i === idx ? { ...e, count: e.count - 1 } : e))
+    .filter((e) => e.count > 0)
+}
+
+function sortPlacementsForReplay(lanes: Lane[], placements: Placement[]): Placement[] {
+  return [...placements].sort((a, b) => {
+    const ua = lanes[a.laneIndex]?.cells[a.cellIndex]?.unitType ?? 'attack'
+    const ub = lanes[b.laneIndex]?.cells[b.cellIndex]?.unitType ?? 'attack'
+    if (ua !== ub) return ua === 'support' ? -1 : 1
+    if (a.laneIndex !== b.laneIndex) return a.laneIndex - b.laneIndex
+    if (a.cellIndex !== b.cellIndex) return a.cellIndex - b.cellIndex
+    return a.slotIndex - b.slotIndex
+  })
+}
+
+export function replayPlacements(
+  lanes: Lane[],
+  energies: Energy[],
+  placements: Placement[],
+): { lanes: Lane[]; energies: Energy[]; steps: PlacementReplayStep[] } {
+  const simLanes: Lane[] = lanes.map((lane) => ({
     ...lane,
-    cells: lane.cells.map((cell, ci) => {
-      if (!cell) return cell
-      const lp = placements.filter((p) => p.laneIndex === li && p.cellIndex === ci)
-      if (lp.length === 0) return cell
-      const newLoaded = [...cell.loadedEnergy]
-      for (const p of lp) newLoaded[p.slotIndex] = { color: p.color, point: p.point }
-      return { ...cell, loadedEnergy: newLoaded }
-    }),
+    cells: cloneLaneCells(lane.cells),
   }))
+  let hand = energies.map((energy) => ({ ...energy }))
+  let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id)) + 1
+  const steps: PlacementReplayStep[] = []
+
+  for (const p of sortPlacementsForReplay(simLanes, placements)) {
+    const cell = simLanes[p.laneIndex]?.cells[p.cellIndex]
+    if (!cell) continue
+
+    const loaded = { color: p.color, point: p.point }
+    hand = consumeEnergyFromHand(hand, loaded)
+
+    cell.loadedEnergy[p.slotIndex] = loaded
+    const generatedEnergies =
+      cell.unitType === 'support'
+        ? triggerSupportOnLoadForSlot(cell, p.slotIndex, loaded)
+        : []
+
+    for (const generated of generatedEnergies) {
+      hand = addEnergyToHand(hand, generated, nextGeneratedId++)
+    }
+
+    steps.push({
+      placement: p,
+      unit: cell,
+      slotColor: cell.slots[p.slotIndex] ?? 'white',
+      generatedEnergies,
+    })
+  }
+
+  return { lanes: simLanes, energies: hand, steps }
 }
 
 function loadedEnergyOutcomeKey(unit: LaneUnit): string {
@@ -250,9 +317,11 @@ function solutionOutcomeKey(
 function evaluateSolution(
   lanes: Lane[],
   placements: Placement[],
-  finalHandCount: number,
+  initialEnergies: Energy[],
 ): EvaluatedSolution {
-  const simLanes = simulatePlacements(lanes, placements)
+  const replay = replayPlacements(lanes, initialEnergies, placements)
+  const simLanes = replay.lanes
+  const finalHandCount = sum(replay.energies.map((e) => e.count))
   const summaries = summarizeLanes(simLanes, { handEnergyCount: finalHandCount })
   const strengthGenerated = sum(summaries.map((s) => s.strength))
   const damageDealt = sum(summaries.map((s) => s.surplus))
@@ -261,17 +330,10 @@ function evaluateSolution(
   const energyConsumed = sum(placements.map((p) => p.point))
   const efficiencyRatio = strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0
 
-  // Count energy cards generated by support unit on-load effects.
-  let energyGenerated = 0
-  for (const p of placements) {
-    const cell = simLanes[p.laneIndex]?.cells[p.cellIndex]
-    if (cell?.unitType === 'support') {
-      energyGenerated += triggerSupportOnLoad(cell, { color: p.color, point: p.point }).length
-    }
-  }
+  const energyGenerated = replay.steps.reduce((total, step) => total + step.generatedEnergies.length, 0)
 
   const stats = { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated }
-  return { stats, outcomeKey: solutionOutcomeKey(simLanes, summaries, stats) }
+  return { stats, outcomeKey: solutionOutcomeKey(simLanes, summaries, stats), finalHandCount }
 }
 
 function toRanked(
@@ -279,15 +341,30 @@ function toRanked(
   lanes: Lane[],
   totalHandCount: number,
   evaluatedStats?: SolutionStats,
+  finalHandCount?: number,
 ): RankedSolution {
-  const finalHandCount = totalHandCount - placements.length
-  const stats = evaluatedStats ?? evaluateSolution(lanes, placements, finalHandCount).stats
+  const fallbackFinalHandCount = totalHandCount - placements.length
+  const stats = evaluatedStats ?? (() => {
+    const summaries = summarizeLanes(lanes, { handEnergyCount: fallbackFinalHandCount })
+    const strengthGenerated = sum(summaries.map((s) => s.strength))
+    const damageDealt = sum(summaries.map((s) => s.surplus))
+    const damageReceived = sum(summaries.map((s) => s.deficit))
+    return {
+      energiesUsed: placements.length,
+      energyConsumed: sum(placements.map((p) => p.point)),
+      strengthGenerated,
+      damageDealt,
+      damageReceived,
+      efficiencyRatio: strengthGenerated > 0 ? placements.length / strengthGenerated : 0,
+      energyGenerated: 0,
+    }
+  })()
   return {
     placements,
     possible: stats.damageReceived === 0,
     totalEnergyUsed: placements.length,
     remainingDeficit: stats.damageReceived,
-    spareEnergy: totalHandCount - placements.length,
+    spareEnergy: finalHandCount ?? fallbackFinalHandCount,
     stats,
   }
 }
@@ -412,7 +489,7 @@ function searchGlobal(
 
     if (slot.unitType === 'support') {
       // Support slot: generated energies expand the pool — pass a copy so backtracking is safe.
-      const generated = triggerSupportOnLoad(cell as LaneUnit, { color: card.color, point: card.point })
+      const generated = triggerSupportOnLoadForSlot(cell as LaneUnit, slot.slotIndex, { color: card.color, point: card.point })
       const newPool = [...pool.slice(0, idx), ...pool.slice(idx + 1)]
       for (const g of generated) newPool.push({ color: g.color, point: g.point })
       searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, newPool, [...placements, nextPlacement], collector, budget, handEnergyCount)
@@ -474,6 +551,7 @@ export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStra
 function rankSolutions(
   rawSolutions: Placement[][],
   lanes: Lane[],
+  energies: Energy[],
   totalHandCount: number,
   max?: number,
 ): RankedSolution[] {
@@ -495,11 +573,10 @@ function rankSolutions(
     if (seen.has(key)) continue
     seen.add(key)
 
-    const finalHandCount = totalHandCount - placements.length
-    const evaluation = evaluateSolution(lanes, placements, finalHandCount)
+    const evaluation = evaluateSolution(lanes, placements, energies)
     if (seenOutcomes.has(evaluation.outcomeKey)) continue
     seenOutcomes.add(evaluation.outcomeKey)
-    ranked.push(toRanked(placements, lanes, totalHandCount, evaluation.stats))
+    ranked.push(toRanked(placements, lanes, totalHandCount, evaluation.stats, evaluation.finalHandCount))
   }
 
   // Collect possible solutions first, then fill remaining slots with impossible ones
@@ -542,7 +619,7 @@ export function solveMultiple(
   lanes: Lane[],
   _laneSummaries: LaneSummary[],
   energies: Energy[],
-  max?: number,
+  max = 5,
 ): RankedSolution[] {
   const basePool: SearchCard[] = energies.flatMap((e) =>
     Array<SearchCard>(e.count).fill({ color: e.color, point: e.point }),
@@ -609,7 +686,7 @@ export function solveMultiple(
   // Always include the empty solution as a baseline
   if (!collector.some((p) => p.length === 0)) collector.push([])
 
-  return rankSolutions(collector, lanes, totalHandCount, max)
+  return rankSolutions(collector, lanes, energies, totalHandCount, max)
 }
 
 /** Kept for the reactive isPossible check in App.tsx. */
@@ -699,38 +776,21 @@ export function computeSolutionSteps(
 ): SolutionStep[] {
   if (placements.length === 0) return []
 
-  // Clone lanes so simulation doesn't touch original state.
+  const replay = replayPlacements(lanes, [], placements)
   const simLanes: Lane[] = lanes.map((lane) => ({
     ...lane,
     cells: cloneLaneCells(lane.cells),
   }))
-
-  // Order: support slots first, then attack — within each, by lane/cell/slot.
-  const sorted = [...placements].sort((a, b) => {
-    const ua = simLanes[a.laneIndex].cells[a.cellIndex]?.unitType ?? 'attack'
-    const ub = simLanes[b.laneIndex].cells[b.cellIndex]?.unitType ?? 'attack'
-    if (ua !== ub) return ua === 'support' ? -1 : 1
-    if (a.laneIndex !== b.laneIndex) return a.laneIndex - b.laneIndex
-    if (a.cellIndex !== b.cellIndex) return a.cellIndex - b.cellIndex
-    return a.slotIndex - b.slotIndex
-  })
-
   const steps: SolutionStep[] = []
 
-  for (const p of sorted) {
+  for (const replayStep of replay.steps) {
+    const p = replayStep.placement
     const cells = simLanes[p.laneIndex].cells
     const cell = cells[p.cellIndex]
     if (!cell) continue
 
-    const slotColor = cell.slots[p.slotIndex] ?? 'white'
-
     // Apply placement to simulation.
     cell.loadedEnergy[p.slotIndex] = { color: p.color, point: p.point }
-
-    // Generated energies (support on-load effects).
-    const generatedEnergies = cell.unitType === 'support'
-      ? triggerSupportOnLoad(cell, { color: p.color, point: p.point }).map((g) => ({ color: g.color, point: g.point }))
-      : []
 
     // Compute effect label using full lane context.
     const allLaneCells = simLanes.map((l) => l.cells)
@@ -754,8 +814,8 @@ export function computeSolutionSteps(
       placement: p,
       unitName: cell.name,
       unitType: cell.unitType,
-      slotColor,
-      generatedEnergies,
+      slotColor: replayStep.slotColor,
+      generatedEnergies: replayStep.generatedEnergies,
       effectLabel: breakdown.effectLabel,
       laneStrengthAfter: laneStrength,
       laneGoal: simLanes[p.laneIndex].goal,

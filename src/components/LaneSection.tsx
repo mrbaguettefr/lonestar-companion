@@ -36,10 +36,12 @@ function buildStrengthFormula(cell: LaneUnit, breakdown: UnitStrengthBreakdown):
   if (breakdown.staticPower > 0) parts.push(`${breakdown.staticPower} (power)`)
 
   if (breakdown.effectBonus !== 0) {
-    const label = breakdown.effectLabel
-      ? (breakdown.effectLabel.match(/\(([^)]+)\)/)?.[1] ?? 'effect')
-      : 'effect'
-    parts.push(`${breakdown.effectBonus} (${label})`)
+    const compactLabel = breakdown.effectLabel?.match(/^[-+]?\d+\s*\(([^)]+)\)$/)?.[1]
+    if (compactLabel) {
+      parts.push(`${breakdown.effectBonus} (${compactLabel})`)
+    } else {
+      parts.push(breakdown.effectLabel ?? `${breakdown.effectBonus} (effect)`)
+    }
   }
 
   if (parts.length === 0) return `0 = ${breakdown.total}`
@@ -246,8 +248,11 @@ export function LaneSection({
                           </span>
                           <div className="unit-badges">
                             <span className="unit-badge">{breakdown?.total ?? 0}</span>
-                            {cell.staticPower > 0 && (
-                              <span className="unit-badge unit-badge--power">{cell.staticPower}</span>
+                            {breakdown.staticPower > 0 && (
+                              <span className="unit-badge unit-badge--power">{breakdown.staticPower}</span>
+                            )}
+                            {breakdown.supportPower > 0 && (
+                              <span className="unit-badge unit-badge--power">Power: {breakdown.supportPower}</span>
                             )}
                           </div>
                         </>

@@ -490,6 +490,7 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
       cellIndex: ctx.cellIndex,
       basePoints: 0,
       staticPower: 0,
+      supportPower: 0,
       effectBonus: 0,
       isDoubled: false,
       total: unit.manualPowerOverride,
@@ -508,6 +509,7 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
       cellIndex: ctx.cellIndex,
       basePoints: 0,
       staticPower: 0,
+      supportPower: 0,
       effectBonus: 0,
       isDoubled: false,
       total: 0,
@@ -529,6 +531,7 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
     cellIndex: ctx.cellIndex,
     basePoints,
     staticPower: activePower,
+    supportPower: 0,
     effectBonus: result.effectBonus,
     isDoubled: result.isDoubled,
     total,
@@ -664,6 +667,16 @@ export function triggerSupportOnLoad(
     default:
       return []
   }
+}
+
+export function triggerSupportOnLoadForSlot(
+  unit: LaneUnit,
+  slotIndex: number,
+  loaded: LoadedEnergy,
+): GeneratedEnergy[] {
+  const loadedEnergy = [...unit.loadedEnergy]
+  loadedEnergy[slotIndex] = loaded
+  return triggerSupportOnLoad({ ...unit, loadedEnergy }, loaded)
 }
 
 /** Skills that have on-load energy generation (used to show a ⚡ indicator in UI) */

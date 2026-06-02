@@ -28,8 +28,8 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, solveMultiple, solveOptimal, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
-import { IMPLEMENTED_SKILLS, formatEffect, triggerActivation, triggerSupportOnLoad } from './lib/effects'
+import { buildBattleContext, replayPlacements, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
+import { IMPLEMENTED_SKILLS, formatEffect, triggerActivation, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
   Energy,
@@ -502,7 +502,7 @@ function App() {
 
       // Trigger support unit on-load effect (energy generation)
       if (targetCell.unitType === 'support') {
-        const generated = triggerSupportOnLoad(targetCell, energyToLoad)
+        const generated = triggerSupportOnLoadForSlot(targetCell, toSlot, energyToLoad)
         for (const gen of generated) {
           const existing = updated.find((e) => e.color === gen.color && e.point === gen.point)
           if (existing) {
@@ -557,40 +557,9 @@ function App() {
     if (placements.length === 0) return
     pushHistory()
 
-    setLanes((current) =>
-      current.map((lane, li) => ({
-        ...lane,
-        cells: lane.cells.map((cell, ci) => {
-          if (!cell) return cell
-          const cellPlacements = placements.filter((p) => p.laneIndex === li && p.cellIndex === ci)
-          if (cellPlacements.length === 0) return cell
-          const newLoaded = [...cell.loadedEnergy]
-          for (const p of cellPlacements) {
-            newLoaded[p.slotIndex] = { color: p.color, point: p.point }
-          }
-          return {
-            ...cell,
-            loadedEnergy: newLoaded,
-            overclockThresholds:
-              cell.overclockThresholds ??
-              unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
-                ?.overclockThresholds ??
-              [],
-          }
-        }),
-      })),
-    )
-
-    setEnergies((current) => {
-      let updated = [...current]
-      for (const p of placements) {
-        const idx = updated.findIndex((e) => e.color === p.color && e.point === p.point && e.count > 0)
-        if (idx !== -1) {
-          updated = updated.map((e, i) => (i === idx ? { ...e, count: e.count - 1 } : e))
-        }
-      }
-      return updated.filter((e) => e.count > 0)
-    })
+    const replay = replayPlacements(lanes, energies, placements)
+    setLanes(replay.lanes)
+    setEnergies(replay.energies)
   }
 
   function clearEnergies() {
@@ -628,43 +597,9 @@ function App() {
     const solution = solvedResults[idx]
     if (!solution) return
 
-    const newLanes = presolvedLanes.map((lane, li) => ({
-      ...lane,
-      cells: lane.cells.map((cell, ci) => {
-        if (!cell) return cell
-        const cellPlacements = solution.placements.filter(
-          (p) => p.laneIndex === li && p.cellIndex === ci,
-        )
-        if (cellPlacements.length === 0) return cell
-        const newLoaded = [...cell.loadedEnergy]
-        for (const p of cellPlacements) {
-          newLoaded[p.slotIndex] = { color: p.color, point: p.point }
-        }
-        return {
-          ...cell,
-          loadedEnergy: newLoaded,
-          overclockThresholds:
-            cell.overclockThresholds ??
-            unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
-              ?.overclockThresholds ??
-            [],
-        }
-      }),
-    }))
-
-    let newEnergies = [...presolvedEnergies]
-    for (const p of solution.placements) {
-      const eIdx = newEnergies.findIndex(
-        (e) => e.color === p.color && e.point === p.point && e.count > 0,
-      )
-      if (eIdx !== -1) {
-        newEnergies = newEnergies.map((e, i) => (i === eIdx ? { ...e, count: e.count - 1 } : e))
-      }
-    }
-    newEnergies = newEnergies.filter((e) => e.count > 0)
-
-    setLanes(newLanes)
-    setEnergies(newEnergies)
+    const replay = replayPlacements(presolvedLanes, presolvedEnergies, solution.placements)
+    setLanes(replay.lanes)
+    setEnergies(replay.energies)
     setLoadedSolutionIdx(idx)
   }
 
@@ -862,11 +797,13 @@ function App() {
             onStrategyChange={setSolverStrategy}
             onSolve={() => {
               const results = solveMultiple(lanes, laneSummaries, energies)
+              const displayedFirst = sortByStrategy(results, solverStrategy)[0]
+              const displayedFirstIdx = displayedFirst ? results.indexOf(displayedFirst) : 0
               setPresolvedLanes(lanes)
               setPresolvedEnergies(energies)
               setSolvedResults(results)
-              setLoadedSolutionIdx(0)
-              if (results.length > 0) applyPlacements(results[0].placements)
+              setLoadedSolutionIdx(displayedFirstIdx)
+              if (displayedFirst) applyPlacements(displayedFirst.placements)
               setHasSolved(true)
             }}
             onClear={clearEnergies}
