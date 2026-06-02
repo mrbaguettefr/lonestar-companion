@@ -1,5 +1,5 @@
 import type { BattleContext, Energy, Lane, LaneUnit, LaneSummary, LoadedEnergy } from '../types/lonestar'
-import { AUTO_ACTIVATION_SKILLS, computeActivationEnergyGenerated, computeUnitStrength, computeSupportPassiveBonus, triggerActivation, triggerSupportOnLoadForSlot, type EffectContext } from './effects'
+import { AUTO_ACTIVATION_SKILLS, applyActivationEffect, computeUnitStrength, computeSupportPassiveBonus, triggerActivation, triggerSupportOnLoadForSlot, type EffectContext } from './effects'
 import { canDropEnergyInSlot } from './gameData'
 import { sum } from './numbers'
 
@@ -332,8 +332,8 @@ export function replayActions(
 
   for (const action of actions) {
     if (action.kind === 'activation') {
-      const result = triggerActivation(action.unit, hand)
-      if (result !== null) hand = result
+      const result = applyActivationEffect(action.unit, hand)
+      if (result !== null) hand = result.energies
     } else {
       const { placement: p } = action
       const cell = simLanes[p.laneIndex]?.cells[p.cellIndex]
@@ -444,10 +444,10 @@ function evaluateSolution(
 
   for (const action of actions) {
     if (action.kind === 'activation') {
-      const result = triggerActivation(action.unit, hand)
+      const result = applyActivationEffect(action.unit, hand)
       if (result !== null) {
-        energyGeneratedCount += computeActivationEnergyGenerated(hand, result)
-        hand = result
+        energyGeneratedCount += result.energyGenerated
+        hand = result.energies
       }
     } else {
       const { placement: p } = action
@@ -926,9 +926,9 @@ export function computeSolutionSteps(
   for (const action of actions) {
     if (action.kind === 'activation') {
       const handBefore = hand.map((e) => ({ color: e.color, point: e.point }))
-      const result = triggerActivation(action.unit, hand)
+      const result = applyActivationEffect(action.unit, hand)
       if (result !== null) {
-        hand = result
+        hand = result.energies
         steps.push({
           kind: 'activation',
           unitName: action.unit.name,

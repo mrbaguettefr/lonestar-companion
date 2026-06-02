@@ -776,6 +776,19 @@ export function computeActivationEnergyGenerated(before: Energy[], after: Energy
   return Math.max(0, afterPoints - beforePoints)
 }
 
+export function applyActivationEffect(
+  unit: LaneUnit,
+  energies: Energy[],
+): { energies: Energy[]; energyGenerated: number } | null {
+  const nextEnergies = triggerActivation(unit, energies)
+  if (nextEnergies === null) return null
+
+  return {
+    energies: nextEnergies,
+    energyGenerated: computeActivationEnergyGenerated(energies, nextEnergies),
+  }
+}
+
 /**
  * Returns the strength bonus that a support unit passively provides to a
  * specific attack unit. Uses full lane+cell positions so adjacency can be
