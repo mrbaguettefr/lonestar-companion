@@ -46,12 +46,17 @@ type EditingCell = {
   cellIndex: number
 }
 
-type ConfigExport = {
-  version: 1
-  shipId: string
-  lanes: Lane[]
-  energies: Energy[]
-}
+type ExportedCell = {
+  unitId: number
+  level: number
+  loadedEnergy: (LoadedEnergy | null)[]
+  manualPowerOverride: number | null
+  activateCount: number
+} | null
+
+type ConfigExport =
+  | { version: 1; shipId: string; lanes: Lane[]; energies: Energy[] }
+  | { version: 2; shipId: string; lanes: Array<{ cells: ExportedCell[]; goal: number }>; energies: Energy[] }
 
 function App() {
   const [lanes, setLanes] = useState<Lane[]>(initialLanes)
@@ -667,9 +672,22 @@ function App() {
 
   function exportToClipboard() {
     const config: ConfigExport = {
-      version: 1,
+      version: 2,
       shipId: selectedShipId,
-      lanes,
+      lanes: lanes.map((lane) => ({
+        goal: lane.goal,
+        cells: lane.cells.map((cell) =>
+          cell
+            ? {
+                unitId: cell.unitId,
+                level: cell.level,
+                loadedEnergy: cell.loadedEnergy,
+                manualPowerOverride: cell.manualPowerOverride,
+                activateCount: cell.activateCount,
+              }
+            : null,
+        ),
+      })),
       energies,
     }
     const json = JSON.stringify(config, null, 2)
@@ -688,30 +706,59 @@ function App() {
   function applyImport() {
     try {
       const config = JSON.parse(importText) as ConfigExport
-      if (config.version !== 1) throw new Error('Unsupported version')
+      if (config.version !== 1 && config.version !== 2) throw new Error('Unsupported version')
       if (!Array.isArray(config.lanes)) throw new Error('Missing lanes')
       if (!Array.isArray(config.energies)) throw new Error('Missing energies')
 
-      // Patch cells missing fields added after initial release
-      const patchedLanes = config.lanes.map((lane) => ({
-        ...lane,
-        cells: lane.cells.map((cell) => {
-          if (!cell) return cell
-          const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null
-          if (!needsPatch) return cell
-          const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
-          return {
-            ...cell,
-            overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
-            maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
-            activateCount: cell.activateCount ?? 0,
-          }
-        }),
-      }))
+      let restoredLanes: Lane[]
+
+      if (config.version === 2) {
+        restoredLanes = config.lanes.map((lane) => ({
+          goal: lane.goal,
+          cells: lane.cells.map((cell) => {
+            if (!cell) return null
+            const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+            if (!option) return null
+            return {
+              unitId: option.unitId,
+              level: option.level,
+              name: option.name,
+              skillPath: option.skillPath,
+              unitType: option.unitType,
+              staticPower: option.staticPower,
+              overclockThresholds: option.overclockThresholds,
+              maxActivations: option.maxActivations,
+              slots: option.slots,
+              effect: option.effect,
+              args: option.args,
+              loadedEnergy: cell.loadedEnergy,
+              manualPowerOverride: cell.manualPowerOverride,
+              activateCount: cell.activateCount ?? 0,
+            } satisfies LaneUnit
+          }),
+        }))
+      } else {
+        // v1: full LaneUnit — patch any missing fields added after initial release
+        restoredLanes = config.lanes.map((lane) => ({
+          ...lane,
+          cells: lane.cells.map((cell) => {
+            if (!cell) return cell
+            const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null
+            if (!needsPatch) return cell
+            const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+            return {
+              ...cell,
+              overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
+              maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
+              activateCount: cell.activateCount ?? 0,
+            }
+          }),
+        }))
+      }
 
       markInputChanged()
       setSelectedShipId(config.shipId ?? '')
-      setLanes(patchedLanes)
+      setLanes(restoredLanes)
       setEnergies(config.energies)
       setIsImportOpen(false)
       setImportError(null)
