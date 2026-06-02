@@ -1,9 +1,10 @@
 import { type DragEvent, useState } from 'react'
 import { getLaneName, canDropEnergyInSlot } from '../lib/gameData'
 import { formatEffect } from '../lib/effects'
-import { solutionScore, type RankedSolution } from '../lib/solver'
+import type { RankedSolution } from '../lib/solver'
 import type { DragPayload, Lane, LaneSummary, LaneUnit, UnitOption, UnitStrengthBreakdown, LoadedEnergy } from '../types/lonestar'
 import { Button } from './ui/button'
+import { SolutionStatsRow } from './SolutionStatsRow'
 
 type LaneSectionProps = {
   lanes: Lane[]
@@ -290,18 +291,7 @@ export function LaneSection({
         })}
       </div>
       <div className="lane-current-eval solution-stats" aria-live="polite">
-        <span>Current</span>
-        <span>Score: {solutionScore(currentEvaluation).toFixed(1)}</span>
-        <span>Energy used: {currentEvaluation.stats.energiesUsed}</span>
-        <span>Energy consumed: {currentEvaluation.stats.energyConsumed} pts</span>
-        <span>Strength: {currentEvaluation.stats.strengthGenerated}</span>
-        <span>Surplus: +{currentEvaluation.stats.damageDealt}</span>
-        <span>Generated: +{currentEvaluation.stats.energyGenerated}</span>
-        {currentEvaluation.stats.damageReceived > 0 && (
-          <span className="solution-stat--warn">
-            Short: {currentEvaluation.stats.damageReceived}
-          </span>
-        )}
+        <SolutionStatsRow stats={currentEvaluation.stats} solution={currentEvaluation} label="Current" />
       </div>
     </section>
   )
