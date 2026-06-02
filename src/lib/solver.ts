@@ -82,7 +82,6 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
       lanes.forEach((otherLane, otherLaneIdx) => {
         otherLane.cells.forEach((cell, supportCellIdx) => {
           if (!cell || cell.unitType !== 'support') return
-          // Skip self (shouldn't happen since support ≠ attack, but guard anyway)
           if (otherLaneIdx === laneIndex && supportCellIdx === attackCellIdx) return
           supportBonus += computeSupportPassiveBonus(
             cell,
@@ -144,9 +143,16 @@ export type SolutionStats = {
   energyGenerated: number
 }
 
+/** A single action in an ordered solution: either an energy placement or a unit activation. */
+export type SolverAction =
+  | { kind: 'placement'; placement: Placement }
+  | { kind: 'activation'; unit: LaneUnit; laneIndex: number; cellIndex: number }
+
 export type RankedSolution = {
+  /** Full ordered action sequence (activations interleaved with placements). */
+  actions: SolverAction[]
+  /** Derived subset of actions that are placements, for convenience. */
   placements: Placement[]
-  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[]
   possible: boolean
   totalEnergyUsed: number
   remainingDeficit: number
@@ -155,9 +161,7 @@ export type RankedSolution = {
 }
 
 type CollectedSolution = {
-  placements: Placement[]
-  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[]
-  activatedEnergies: Energy[]
+  actions: SolverAction[]
 }
 
 type EvaluatedSolution = {
@@ -236,8 +240,8 @@ export function evaluateCurrentBoard(
   }
 
   return {
+    actions: placements.map((p) => ({ kind: 'placement', placement: p })),
     placements,
-    activations: [],
     possible: damageReceived === 0,
     totalEnergyUsed: energiesUsed,
     remainingDeficit: damageReceived,
@@ -308,6 +312,46 @@ export function replayPlacements(
   }
 
   return { lanes: simLanes, energies: hand, steps }
+}
+
+/**
+ * Replay an ordered sequence of actions (activations interleaved with placements)
+ * against the given initial hand. Returns the final lane state and remaining hand.
+ */
+export function replayActions(
+  lanes: Lane[],
+  initialEnergies: Energy[],
+  actions: SolverAction[],
+): { lanes: Lane[]; energies: Energy[] } {
+  const simLanes: Lane[] = lanes.map((lane) => ({
+    ...lane,
+    cells: cloneLaneCells(lane.cells),
+  }))
+  let hand = initialEnergies.map((e) => ({ ...e }))
+  let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id), 0) + 1
+
+  for (const action of actions) {
+    if (action.kind === 'activation') {
+      const result = triggerActivation(action.unit, hand)
+      if (result !== null) hand = result
+    } else {
+      const { placement: p } = action
+      const cell = simLanes[p.laneIndex]?.cells[p.cellIndex]
+      if (!cell) continue
+      const loaded = { color: p.color, point: p.point }
+      const idx = hand.findIndex((e) => e.color === loaded.color && e.point === loaded.point)
+      if (idx !== -1) hand = hand.filter((_, i) => i !== idx)
+      cell.loadedEnergy[p.slotIndex] = loaded
+      if (cell.unitType === 'support') {
+        const generated = triggerSupportOnLoadForSlot(cell, p.slotIndex, loaded)
+        for (const gen of generated) {
+          hand = [...hand, { id: nextGeneratedId++, color: gen.color, point: gen.point }]
+        }
+      }
+    }
+  }
+
+  return { lanes: simLanes, energies: hand }
 }
 
 function loadedEnergyOutcomeKey(unit: LaneUnit): string {
@@ -386,12 +430,42 @@ function solutionOutcomeKey(
 
 function evaluateSolution(
   lanes: Lane[],
-  placements: Placement[],
+  actions: SolverAction[],
   initialEnergies: Energy[],
 ): EvaluatedSolution {
-  const replay = replayPlacements(lanes, initialEnergies, placements)
-  const simLanes = replay.lanes
-  const finalHandCount = replay.energies.length
+  const simLanes: Lane[] = lanes.map((lane) => ({
+    ...lane,
+    cells: cloneLaneCells(lane.cells),
+  }))
+  let hand = initialEnergies.map((e) => ({ ...e }))
+  let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id), 0) + 1
+  let energyGeneratedCount = 0
+  const placements: Placement[] = []
+
+  for (const action of actions) {
+    if (action.kind === 'activation') {
+      const result = triggerActivation(action.unit, hand)
+      if (result !== null) hand = result
+    } else {
+      const { placement: p } = action
+      placements.push(p)
+      const cell = simLanes[p.laneIndex]?.cells[p.cellIndex]
+      if (!cell) continue
+      const loaded = { color: p.color, point: p.point }
+      const idx = hand.findIndex((e) => e.color === loaded.color && e.point === loaded.point)
+      if (idx !== -1) hand = hand.filter((_, i) => i !== idx)
+      cell.loadedEnergy[p.slotIndex] = loaded
+      if (cell.unitType === 'support') {
+        const generated = triggerSupportOnLoadForSlot(cell, p.slotIndex, loaded)
+        for (const gen of generated) {
+          hand = [...hand, { id: nextGeneratedId++, color: gen.color, point: gen.point }]
+          energyGeneratedCount++
+        }
+      }
+    }
+  }
+
+  const finalHandCount = hand.length
   const summaries = summarizeLanes(simLanes, { handEnergyCount: finalHandCount })
   const strengthGenerated = sum(summaries.map((s) => s.strength))
   const damageDealt = sum(summaries.map((s) => s.surplus))
@@ -400,20 +474,18 @@ function evaluateSolution(
   const energyConsumed = sum(placements.map((p) => p.point))
   const efficiencyRatio = strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0
 
-  const energyGenerated = replay.steps.reduce((total, step) => total + step.generatedEnergies.length, 0)
-
-  const stats = { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated }
+  const stats: SolutionStats = { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated: energyGeneratedCount }
   return { stats, outcomeKey: solutionOutcomeKey(simLanes, summaries, stats), finalHandCount }
 }
 
 function toRanked(
-  placements: Placement[],
+  actions: SolverAction[],
   lanes: Lane[],
   totalHandCount: number,
   evaluatedStats?: SolutionStats,
   finalHandCount?: number,
-  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = [],
 ): RankedSolution {
+  const placements = actions.filter((a): a is { kind: 'placement'; placement: Placement } => a.kind === 'placement').map((a) => a.placement)
   const fallbackFinalHandCount = totalHandCount - placements.length
   const stats = evaluatedStats ?? (() => {
     const summaries = summarizeLanes(lanes, { handEnergyCount: fallbackFinalHandCount })
@@ -431,8 +503,8 @@ function toRanked(
     }
   })()
   return {
+    actions,
     placements,
-    activations,
     possible: stats.damageReceived === 0,
     totalEnergyUsed: placements.length,
     remainingDeficit: stats.damageReceived,
@@ -452,6 +524,7 @@ type GlobalSlot = {
 }
 
 type SearchCard = { color: string; point: number }
+type ActivatableUnit = { unit: LaneUnit; laneIndex: number; cellIndex: number }
 
 /** Shallow-clone a lane's cell array so loadedEnergy arrays can be safely mutated. */
 function cloneLaneCells(cells: (LaneUnit | null)[]): (LaneUnit | null)[] {
@@ -494,8 +567,9 @@ function computeLaneAttackStrength(
 }
 
 /**
- * Global recursive backtracking across all empty attack slots in all lanes.
- * Records every complete assignment (all slots processed or pool exhausted).
+ * Global recursive backtracking across all empty slots in all lanes.
+ * At each step, also tries each remaining activatable unit before placing energy,
+ * so activations can be interleaved with placements in any order.
  * `budget` limits total recursive calls to keep it performant.
  */
 function searchGlobal(
@@ -503,25 +577,40 @@ function searchGlobal(
   slotIdx: number,
   mutableLaneCells: Map<number, (LaneUnit | null)[]>,
   pool: SearchCard[],
-  placements: Placement[],
-  collector: Placement[][],
+  actions: SolverAction[],
+  remainingActivatable: ActivatableUnit[],
+  collector: CollectedSolution[],
   budget: { remaining: number },
   handEnergyCount: number,
 ): void {
   if (budget.remaining <= 0) return
   budget.remaining--
 
-  // All slots processed — record this assignment
+  // All slots processed or pool exhausted — record this assignment
   if (slotIdx >= allSlots.length || pool.length === 0) {
-    collector.push([...placements])
+    collector.push({ actions: [...actions] })
     return
+  }
+
+  // Try each remaining activation before processing the current slot.
+  // This allows activations to occur at any point in the sequence.
+  for (const act of remainingActivatable) {
+    if (budget.remaining <= 0) break
+    const energiesForActivation: Energy[] = pool.map((c, i) => ({ id: i, color: c.color, point: c.point }))
+    const activated = triggerActivation(act.unit, energiesForActivation)
+    if (activated !== null) {
+      const newPool = activated.map((e) => ({ color: e.color, point: e.point }))
+      const activationAction: SolverAction = { kind: 'activation', unit: act.unit, laneIndex: act.laneIndex, cellIndex: act.cellIndex }
+      const newRemaining = remainingActivatable.filter((a) => a !== act)
+      searchGlobal(allSlots, slotIdx, mutableLaneCells, newPool, [...actions, activationAction], newRemaining, collector, budget, handEnergyCount)
+    }
   }
 
   const slot = allSlots[slotIdx]
   const cells = mutableLaneCells.get(slot.laneIndex)!
   const cell = cells[slot.cellIndex]
   if (!cell) {
-    searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, placements, collector, budget, handEnergyCount)
+    searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
     return
   }
 
@@ -557,18 +646,17 @@ function searchGlobal(
 
     const prev = cell.loadedEnergy[slot.slotIndex]
     cell.loadedEnergy[slot.slotIndex] = { color: card.color, point: card.point } as LoadedEnergy
-    const nextPlacement = { laneIndex: slot.laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point }
+    const placement: Placement = { laneIndex: slot.laneIndex, cellIndex: slot.cellIndex, slotIndex: slot.slotIndex, color: card.color, point: card.point }
+    const placementAction: SolverAction = { kind: 'placement', placement }
 
     if (slot.unitType === 'support') {
-      // Support slot: generated energies expand the pool — pass a copy so backtracking is safe.
       const generated = triggerSupportOnLoadForSlot(cell as LaneUnit, slot.slotIndex, { color: card.color, point: card.point })
       const newPool = [...pool.slice(0, idx), ...pool.slice(idx + 1)]
       for (const g of generated) newPool.push({ color: g.color, point: g.point })
-      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, newPool, [...placements, nextPlacement], collector, budget, handEnergyCount)
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, newPool, [...actions, placementAction], remainingActivatable, collector, budget, handEnergyCount)
     } else {
-      // Attack slot: mutate pool in place (restored after recursion).
       pool.splice(idx, 1)
-      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, [...placements, nextPlacement], collector, budget, handEnergyCount)
+      searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, [...actions, placementAction], remainingActivatable, collector, budget, handEnergyCount)
       pool.splice(idx, 0, card)
     }
 
@@ -576,13 +664,11 @@ function searchGlobal(
   }
 
   // Also try skipping this slot.
-  searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, placements, collector, budget, handEnergyCount)
+  searchGlobal(allSlots, slotIdx + 1, mutableLaneCells, pool, actions, remainingActivatable, collector, budget, handEnergyCount)
 }
 
 /**
  * Composite score for the "best" strategy.
- * - Goals not met → 0
- * - Weights: strength/card ratio ×2, energy generated ×1, surplus penalty ×0.75, energy consumed penalty ×0.1
  */
 export function solutionScore(s: RankedSolution): number {
   if (!s.possible) return 0
@@ -613,7 +699,6 @@ export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStra
         return b.stats.strengthGenerated - a.stats.strengthGenerated
       return a.totalEnergyUsed - b.totalEnergyUsed
     }
-    // max-energy: most energy generated by support units first, then highest strength
     if (b.stats.energyGenerated !== a.stats.energyGenerated)
       return b.stats.energyGenerated - a.stats.energyGenerated
     return b.stats.strengthGenerated - a.stats.strengthGenerated
@@ -627,32 +712,32 @@ function rankSolutions(
   totalHandCount: number,
   max?: number,
 ): RankedSolution[] {
-  // Convert and deduplicate
   const seen = new Set<string>()
   const seenOutcomes = new Set<string>()
   const ranked: RankedSolution[] = []
 
   for (const collected of rawSolutions) {
-    const { placements, activations, activatedEnergies } = collected
-    const key = [...placements]
-      .sort((a, b) =>
-        a.laneIndex !== b.laneIndex ? a.laneIndex - b.laneIndex :
-        a.cellIndex !== b.cellIndex ? a.cellIndex - b.cellIndex :
-        a.slotIndex - b.slotIndex,
+    const { actions } = collected
+
+    // Deduplicate by full action sequence first (cheap)
+    const key = actions
+      .map((a) =>
+        a.kind === 'placement'
+          ? `P:${a.placement.laneIndex}:${a.placement.cellIndex}:${a.placement.slotIndex}:${a.placement.color}:${a.placement.point}`
+          : `A:${a.unit.unitId}:${a.unit.level}`,
       )
-      .map((p) => `${p.laneIndex}:${p.cellIndex}:${p.slotIndex}:${p.color}:${p.point}`)
       .join('|')
 
     if (seen.has(key)) continue
     seen.add(key)
 
-    const evaluation = evaluateSolution(lanes, placements, activatedEnergies)
+    // Deduplicate by outcome (expensive but exact)
+    const evaluation = evaluateSolution(lanes, actions, energies)
     if (seenOutcomes.has(evaluation.outcomeKey)) continue
     seenOutcomes.add(evaluation.outcomeKey)
-    ranked.push(toRanked(placements, lanes, totalHandCount, evaluation.stats, evaluation.finalHandCount, activations))
+    ranked.push(toRanked(actions, lanes, totalHandCount, evaluation.stats, evaluation.finalHandCount))
   }
 
-  // Collect possible solutions first, then fill remaining slots with impossible ones
   ranked.sort((a, b) => {
     if (a.possible !== b.possible) return a.possible ? -1 : 1
     if (a.totalEnergyUsed !== b.totalEnergyUsed) return a.totalEnergyUsed - b.totalEnergyUsed
@@ -663,8 +748,8 @@ function rankSolutions(
 }
 
 /** Collect all activatable units (not yet activated) that have auto-applicable effects. */
-function collectActivatableUnits(lanes: Lane[]): { unit: LaneUnit; laneIndex: number; cellIndex: number }[] {
-  const result: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = []
+function collectActivatableUnits(lanes: Lane[]): ActivatableUnit[] {
+  const result: ActivatableUnit[] = []
   for (const [laneIndex, lane] of lanes.entries()) {
     for (const [cellIndex, cell] of lane.cells.entries()) {
       if (cell && (cell.activateCount ?? 0) === 0 && AUTO_ACTIVATION_SKILLS.has(cell.skillPath)) {
@@ -673,19 +758,6 @@ function collectActivatableUnits(lanes: Lane[]): { unit: LaneUnit; laneIndex: nu
     }
   }
   return result
-}
-
-/** Generate all subsets (as bitmask indices) of activatable units to try. */
-function activationSubsets(count: number): number[][] {
-  const subsets: number[][] = []
-  for (let mask = 0; mask < (1 << count); mask++) {
-    const subset: number[] = []
-    for (let i = 0; i < count; i++) {
-      if (mask & (1 << i)) subset.push(i)
-    }
-    subsets.push(subset)
-  }
-  return subsets
 }
 
 export function solveMultiple(
@@ -717,49 +789,26 @@ export function solveMultiple(
   })
 
   if (allSlots.length === 0 || basePool.length === 0) {
-    return [toRanked([], lanes, totalHandCount, undefined, undefined, [])]
+    return [toRanked([], lanes, totalHandCount)]
   }
 
-  // Enumerate activatable units and try all subsets (each activated at most once).
+  // All activatable units are passed to the search so it can try activating
+  // them at any point in the sequence (not just upfront).
   const activatable = collectActivatableUnits(lanes)
-  const subsets = activatable.length <= 6 ? activationSubsets(activatable.length) : [[]]
 
   const collector: CollectedSolution[] = []
-  const budget = { remaining: 50_000 }
+  const budget = { remaining: 100_000 }
 
-  for (const subset of subsets) {
-    // Apply the chosen activations to the pool, tracking which units were activated
-    let pool: SearchCard[] = [...basePool]
-    const activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = []
-    for (const idx of subset) {
-      const { unit, laneIndex, cellIndex } = activatable[idx]
-      const modifiedEnergies = triggerActivation(unit, pool.reduce<Energy[]>((acc, c) => {
-        return [...acc, { id: acc.length, color: c.color, point: c.point }]
-      }, []))
-      if (modifiedEnergies !== null) {
-        pool = modifiedEnergies.map((e) => ({ color: e.color, point: e.point }))
-        activations.push({ unit, laneIndex, cellIndex })
-      }
-    }
-    const activatedEnergies: Energy[] = pool.map((c, i) => ({ id: i, color: c.color, point: c.point }))
-
-    // Build mutable per-lane cell clones for this search pass
-    const mutableLaneCells = new Map<number, (LaneUnit | null)[]>()
-    for (const [i, lane] of lanes.entries()) {
-      mutableLaneCells.set(i, cloneLaneCells(lane.cells))
-    }
-
-    const subCollector: Placement[][] = []
-    searchGlobal(allSlots, 0, mutableLaneCells, pool, [], subCollector, budget, totalHandCount)
-    for (const placements of subCollector) {
-      collector.push({ placements, activations, activatedEnergies })
-    }
-    if (budget.remaining <= 0) break
+  const mutableLaneCells = new Map<number, (LaneUnit | null)[]>()
+  for (const [i, lane] of lanes.entries()) {
+    mutableLaneCells.set(i, cloneLaneCells(lane.cells))
   }
 
+  searchGlobal(allSlots, 0, mutableLaneCells, basePool, [], activatable, collector, budget, totalHandCount)
+
   // Always include the empty solution as a baseline
-  if (!collector.some((c) => c.placements.length === 0)) {
-    collector.push({ placements: [], activations: [], activatedEnergies: energies })
+  if (!collector.some((c) => c.actions.length === 0)) {
+    collector.push({ actions: [] })
   }
 
   return rankSolutions(collector, lanes, energies, totalHandCount, max)
@@ -843,9 +892,7 @@ export type PlacementSolutionStep = {
   unitType: 'attack' | 'support'
   slotColor: string
   generatedEnergies: { color: string; point: number }[]
-  /** Strength label from the effect handler (e.g. "+4 (OC≥3+2, OC≥5+2)"). */
   effectLabel: string | null
-  /** Current total attack strength of the lane after this step. */
   laneStrengthAfter: number
   laneGoal: number
 }
@@ -853,81 +900,91 @@ export type PlacementSolutionStep = {
 export type SolutionStep = ActivationSolutionStep | PlacementSolutionStep
 
 /**
- * Simulate a solution placement-by-placement and return annotated steps.
- * Activation steps (e.g. bleaching device) come first, then support loads, then attack loads.
+ * Simulate a solution action-by-action and return annotated steps.
+ * Activations and placements are replayed in the recorded order, so an
+ * activation that occurs mid-sequence reflects the correct hand state.
  */
 export function computeSolutionSteps(
   lanes: Lane[],
-  placements: Placement[],
+  actions: SolverAction[],
   initialHandCount: number,
-  initialEnergies: Energy[] = [],
-  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = [],
+  initialEnergies: Energy[],
 ): SolutionStep[] {
+  if (actions.length === 0) return []
+
   const steps: SolutionStep[] = []
-
-  // Emit activation steps first, simulating hand transforms.
-  let hand: Energy[] = initialEnergies.map((e) => ({ ...e }))
-  for (const { unit, laneIndex } of activations) {
-    const handBefore = hand.map((e) => ({ color: e.color, point: e.point }))
-    const result = triggerActivation(unit, hand)
-    if (result !== null) {
-      hand = result
-      steps.push({
-        kind: 'activation',
-        unitName: unit.name,
-        laneIndex,
-        handBefore,
-        handAfter: hand.map((e) => ({ color: e.color, point: e.point })),
-      })
-    }
-  }
-
-  if (placements.length === 0) return steps
-
-  const replay = replayPlacements(lanes, [], placements)
   const simLanes: Lane[] = lanes.map((lane) => ({
     ...lane,
     cells: cloneLaneCells(lane.cells),
   }))
+  let hand: Energy[] = initialEnergies.map((e) => ({ ...e }))
+  let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id), 0) + 1
 
-  for (const replayStep of replay.steps) {
-    const p = replayStep.placement
-    const cells = simLanes[p.laneIndex].cells
-    const cell = cells[p.cellIndex]
-    if (!cell) continue
+  for (const action of actions) {
+    if (action.kind === 'activation') {
+      const handBefore = hand.map((e) => ({ color: e.color, point: e.point }))
+      const result = triggerActivation(action.unit, hand)
+      if (result !== null) {
+        hand = result
+        steps.push({
+          kind: 'activation',
+          unitName: action.unit.name,
+          laneIndex: action.laneIndex,
+          handBefore,
+          handAfter: hand.map((e) => ({ color: e.color, point: e.point })),
+        })
+      }
+    } else {
+      const p = action.placement
+      const cells = simLanes[p.laneIndex].cells
+      const cell = cells[p.cellIndex]
+      if (!cell) continue
 
-    // Apply placement to simulation.
-    cell.loadedEnergy[p.slotIndex] = { color: p.color, point: p.point }
+      // Consume from hand
+      const handIdx = hand.findIndex((e) => e.color === p.color && e.point === p.point)
+      if (handIdx !== -1) hand = hand.filter((_, i) => i !== handIdx)
 
-    // Compute effect label using full lane context.
-    const allLaneCells = simLanes.map((l) => l.cells)
-    const loadedColors = new Set(cells.flatMap((c) => (c ? c.loadedEnergy.filter(Boolean).map((e) => e!.color) : [])))
-    const tripower = loadedColors.has('white') && loadedColors.has('blue') && loadedColors.has('orange')
-    const highestPoint = Math.max(0, ...allLaneCells.flatMap((lc) => lc.flatMap((c) => (c ? c.loadedEnergy.filter(Boolean).map((e) => e!.point) : []))))
-    const ctx: EffectContext = {
-      lane: cells,
-      laneIndex: p.laneIndex,
-      cellIndex: p.cellIndex,
-      allLanes: allLaneCells,
-      handEnergyCount: initialHandCount,
-      tripower,
-      highestPointInBattle: highestPoint,
+      // Apply placement to simulation
+      cell.loadedEnergy[p.slotIndex] = { color: p.color, point: p.point }
+
+      // Compute effect label using full lane context
+      const allLaneCells = simLanes.map((l) => l.cells)
+      const loadedColors = new Set(cells.flatMap((c) => (c ? c.loadedEnergy.filter(Boolean).map((e) => e!.color) : [])))
+      const tripower = loadedColors.has('white') && loadedColors.has('blue') && loadedColors.has('orange')
+      const highestPoint = Math.max(0, ...allLaneCells.flatMap((lc) => lc.flatMap((c) => (c ? c.loadedEnergy.filter(Boolean).map((e) => e!.point) : []))))
+      const ctx: EffectContext = {
+        lane: cells,
+        laneIndex: p.laneIndex,
+        cellIndex: p.cellIndex,
+        allLanes: allLaneCells,
+        handEnergyCount: initialHandCount,
+        tripower,
+        highestPointInBattle: highestPoint,
+      }
+      const breakdown = computeUnitStrength(cell, ctx)
+      const laneStrength = summarizeLanes(simLanes, { handEnergyCount: initialHandCount })[p.laneIndex]?.strength ?? 0
+
+      // Generate energies if support
+      const generatedEnergies = cell.unitType === 'support'
+        ? triggerSupportOnLoadForSlot(cell, p.slotIndex, { color: p.color, point: p.point })
+        : []
+
+      for (const gen of generatedEnergies) {
+        hand = [...hand, { id: nextGeneratedId++, color: gen.color, point: gen.point }]
+      }
+
+      steps.push({
+        kind: 'placement',
+        placement: p,
+        unitName: cell.name,
+        unitType: cell.unitType,
+        slotColor: cell.slots[p.slotIndex] ?? 'white',
+        generatedEnergies,
+        effectLabel: breakdown.effectLabel,
+        laneStrengthAfter: laneStrength,
+        laneGoal: simLanes[p.laneIndex].goal,
+      })
     }
-    const breakdown = computeUnitStrength(cell, ctx)
-    // Use summarizeLanes for accurate lane strength (includes support passives).
-    const laneStrength = summarizeLanes(simLanes, { handEnergyCount: initialHandCount })[p.laneIndex]?.strength ?? 0
-
-    steps.push({
-      kind: 'placement',
-      placement: p,
-      unitName: cell.name,
-      unitType: cell.unitType,
-      slotColor: replayStep.slotColor,
-      generatedEnergies: replayStep.generatedEnergies,
-      effectLabel: breakdown.effectLabel,
-      laneStrengthAfter: laneStrength,
-      laneGoal: simLanes[p.laneIndex].goal,
-    })
   }
 
   return steps

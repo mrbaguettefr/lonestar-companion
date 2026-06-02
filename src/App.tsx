@@ -28,7 +28,7 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, evaluateCurrentBoard, replayPlacements, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
+import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type Placement, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
 import { IMPLEMENTED_SKILLS, formatEffect, triggerActivation, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
@@ -573,17 +573,10 @@ function App() {
 
   // ── Apply solver placements ────────────────────────────────────────────
 
-  function applyPlacements(placements: Placement[], activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = []) {
-    if (placements.length === 0 && activations.length === 0) return
+  function applyActions(actions: SolverAction[]) {
+    if (actions.length === 0) return
     pushHistory()
-
-    let currentEnergies = energies
-    for (const { unit } of activations) {
-      const result = triggerActivation(unit, currentEnergies)
-      if (result !== null) currentEnergies = result
-    }
-
-    const replay = replayPlacements(lanes, currentEnergies, placements)
+    const replay = replayActions(lanes, energies, actions)
     setLanes(replay.lanes)
     setEnergies(replay.energies)
   }
@@ -625,13 +618,7 @@ function App() {
     const solution = solvedResults[idx]
     if (!solution) return
 
-    let energiesForReplay = presolvedEnergies
-    for (const { unit } of solution.activations) {
-      const result = triggerActivation(unit, energiesForReplay)
-      if (result !== null) energiesForReplay = result
-    }
-
-    const replay = replayPlacements(presolvedLanes, energiesForReplay, solution.placements)
+    const replay = replayActions(presolvedLanes, presolvedEnergies, solution.actions)
     setLanes(replay.lanes)
     setEnergies(replay.energies)
     setLoadedSolutionIdx(idx)
@@ -870,7 +857,7 @@ function App() {
               setPresolvedActivationEnergyGenerated(activationEnergyGenerated)
               setSolvedResults(results)
               setLoadedSolutionIdx(displayedFirstIdx)
-              if (displayedFirst) applyPlacements(displayedFirst.placements, displayedFirst.activations)
+              if (displayedFirst) applyActions(displayedFirst.actions)
               setHasSolved(true)
             }}
             onLoadSolution={loadSolution}

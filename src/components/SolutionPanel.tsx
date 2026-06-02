@@ -75,10 +75,9 @@ export function SolutionPanel({
                 isExpanded && presolvedLanes
                   ? computeSolutionSteps(
                       presolvedLanes,
-                      result.placements,
+                      result.actions,
                       result.totalEnergyUsed + result.spareEnergy,
                       presolvedEnergies ?? [],
-                      result.activations,
                     )
                   : null
 
