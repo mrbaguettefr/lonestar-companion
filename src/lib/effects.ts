@@ -779,13 +779,14 @@ export function computeActivationEnergyGenerated(before: Energy[], after: Energy
 export function applyActivationEffect(
   unit: LaneUnit,
   energies: Energy[],
-): { energies: Energy[]; energyGenerated: number } | null {
+): { energies: Energy[]; energyGenerated: number; energiesGenerated: number } | null {
   const nextEnergies = triggerActivation(unit, energies)
   if (nextEnergies === null) return null
 
   return {
     energies: nextEnergies,
     energyGenerated: computeActivationEnergyGenerated(energies, nextEnergies),
+    energiesGenerated: Math.max(0, nextEnergies.length - energies.length),
   }
 }
 

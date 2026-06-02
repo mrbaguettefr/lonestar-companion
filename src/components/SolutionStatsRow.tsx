@@ -13,11 +13,11 @@ export function SolutionStatsRow({ stats, solution, label }: SolutionStatsRowPro
     <>
       {label && <span>{label}</span>}
       {solution && <span>Score: {solutionScore(solution).toFixed(1)}</span>}
-      <span>Energy used: {stats.energiesUsed}</span>
-      <span>Energy consumed: {stats.energyConsumed} pts</span>
+      <span>Energy: {stats.energiesUsed}/{stats.energiesGenerated}</span>
+      <span>Energy pts: {stats.energyConsumed}/{stats.energyGenerated}</span>
+      <span>Steps: {stats.stepCount}</span>
       <span>Strength: {stats.strengthGenerated}</span>
       <span>Surplus: +{stats.damageDealt}</span>
-      <span>Generated: +{stats.energyGenerated} pts</span>
       {stats.damageReceived > 0 && (
         <span className="solution-stat--warn">
           Short: {stats.damageReceived}

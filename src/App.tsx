@@ -66,6 +66,7 @@ type HistoryEntry = {
   lanes: Lane[]
   energies: Energy[]
   activationEnergyGenerated: number
+  activationEnergiesGenerated: number
 }
 
 function App() {
@@ -90,15 +91,17 @@ function App() {
   const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
   const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
   const [presolvedActivationEnergyGenerated, setPresolvedActivationEnergyGenerated] = useState<number | null>(null)
+  const [presolvedActivationEnergiesGenerated, setPresolvedActivationEnergiesGenerated] = useState<number | null>(null)
   const [activationEnergyGenerated, setActivationEnergyGenerated] = useState(0)
+  const [activationEnergiesGenerated, setActivationEnergiesGenerated] = useState(0)
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([])
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([])
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const currentEvaluation = useMemo(
-    () => evaluateCurrentBoard(lanes, laneSummaries, activationEnergyGenerated),
-    [lanes, laneSummaries, activationEnergyGenerated],
+    () => evaluateCurrentBoard(lanes, laneSummaries, activationEnergyGenerated, activationEnergiesGenerated),
+    [lanes, laneSummaries, activationEnergyGenerated, activationEnergiesGenerated],
   )
   const solution = useMemo(
     () => solveOptimal(lanes, laneSummaries, energies),
@@ -201,32 +204,35 @@ function App() {
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
     setPresolvedActivationEnergyGenerated(null)
+    setPresolvedActivationEnergiesGenerated(null)
   }
 
   function pushHistory() {
-    setUndoStack((prev) => [...prev.slice(-29), { lanes, energies, activationEnergyGenerated }])
+    setUndoStack((prev) => [...prev.slice(-29), { lanes, energies, activationEnergyGenerated, activationEnergiesGenerated }])
     setRedoStack([])
   }
 
   function undo() {
     if (undoStack.length === 0) return
     const prev = undoStack[undoStack.length - 1]
-    setRedoStack((r) => [...r.slice(-29), { lanes, energies, activationEnergyGenerated }])
+    setRedoStack((r) => [...r.slice(-29), { lanes, energies, activationEnergyGenerated, activationEnergiesGenerated }])
     setUndoStack((u) => u.slice(0, -1))
     setLanes(prev.lanes)
     setEnergies(prev.energies)
     setActivationEnergyGenerated(prev.activationEnergyGenerated)
+    setActivationEnergiesGenerated(prev.activationEnergiesGenerated)
     markInputChanged()
   }
 
   function redo() {
     if (redoStack.length === 0) return
     const next = redoStack[redoStack.length - 1]
-    setUndoStack((u) => [...u.slice(-29), { lanes, energies, activationEnergyGenerated }])
+    setUndoStack((u) => [...u.slice(-29), { lanes, energies, activationEnergyGenerated, activationEnergiesGenerated }])
     setRedoStack((r) => r.slice(0, -1))
     setLanes(next.lanes)
     setEnergies(next.energies)
     setActivationEnergyGenerated(next.activationEnergyGenerated)
+    setActivationEnergiesGenerated(next.activationEnergiesGenerated)
     markInputChanged()
   }
 
@@ -245,6 +251,7 @@ function App() {
   function selectShip(shipId: string) {
     markInputChanged()
     setActivationEnergyGenerated(0)
+    setActivationEnergiesGenerated(0)
     setSelectedShipId(shipId)
     setEditingCell(null)
     const ship = ships.find((candidate) => String(candidate.id) === shipId)
@@ -324,6 +331,7 @@ function App() {
 
     if (activationResult !== null) {
       setActivationEnergyGenerated((current) => current + activationResult.energyGenerated)
+      setActivationEnergiesGenerated((current) => current + activationResult.energiesGenerated)
       setEnergies(activationResult.energies)
     }
 
@@ -574,6 +582,8 @@ function App() {
     const replay = replayActions(lanes, energies, actions)
     setLanes(replay.lanes)
     setEnergies(replay.energies)
+    setActivationEnergyGenerated((current) => current + replay.activationEnergyGenerated)
+    setActivationEnergiesGenerated((current) => current + replay.activationEnergiesGenerated)
   }
 
   function clearEnergies() {
@@ -583,6 +593,7 @@ function App() {
       setLanes(presolvedLanes)
       setEnergies(presolvedEnergies)
       setActivationEnergyGenerated(presolvedActivationEnergyGenerated ?? 0)
+      setActivationEnergiesGenerated(presolvedActivationEnergiesGenerated ?? 0)
     } else {
       // Unload all slots and return energies to hand
       const toReturn: LoadedEnergy[] = lanes.flatMap((lane) =>
@@ -606,6 +617,7 @@ function App() {
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
     setPresolvedActivationEnergyGenerated(null)
+    setPresolvedActivationEnergiesGenerated(null)
   }
 
   function loadSolution(idx: number) {
@@ -709,6 +721,7 @@ function App() {
     setUndoStack([])
     setRedoStack([])
     setActivationEnergyGenerated(0)
+    setActivationEnergiesGenerated(0)
     setSelectedShipId(config.shipId ?? '')
     setLanes(restoredLanes)
     setEnergies(config.energies)
@@ -843,6 +856,7 @@ function App() {
                 stats: {
                   ...result.stats,
                   energyGenerated: result.stats.energyGenerated + activationEnergyGenerated,
+                  energiesGenerated: result.stats.energiesGenerated + activationEnergiesGenerated,
                 },
               }))
               const displayedFirst = sortByStrategy(results, solverStrategy)[0]
@@ -850,6 +864,7 @@ function App() {
               setPresolvedLanes(lanes)
               setPresolvedEnergies(energies)
               setPresolvedActivationEnergyGenerated(activationEnergyGenerated)
+              setPresolvedActivationEnergiesGenerated(activationEnergiesGenerated)
               setSolvedResults(results)
               setLoadedSolutionIdx(displayedFirstIdx)
               if (displayedFirst) applyActions(displayedFirst.actions)
