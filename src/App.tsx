@@ -14,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from './components/ui/dialog'
-import { Input } from './components/ui/input'
 import { Label } from './components/ui/label'
 import {
   canDropEnergyInSlot,
@@ -29,7 +28,7 @@ import {
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
 import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, sortByStrategy, summarizeLanes, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
-import { IMPLEMENTED_SKILLS, applyActivationEffect, effectiveStaticPower, formatEffect, triggerSupportOnLoadForSlot } from './lib/effects'
+import { applyActivationEffect, effectiveStaticPower, formatEffect, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
   Energy,
@@ -51,7 +50,6 @@ type ExportedCell = {
   unitId: number
   level: number
   loadedEnergy: (LoadedEnergy | null)[]
-  manualPowerOverride: number | null
   activateCount: number
   mods?: UnitModId[]
 } | null
@@ -129,7 +127,6 @@ function App() {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null)
   const [draftUnitId, setDraftUnitId] = useState('')
   const [draftLoadedEnergy, setDraftLoadedEnergy] = useState<(LoadedEnergy | null)[]>([])
-  const [draftManualOverride, setDraftManualOverride] = useState<number | null>(null)
   const [draftMods, setDraftMods] = useState<UnitModId[]>([])
   const [draftModToAdd, setDraftModToAdd] = useState<UnitModId>('power-plus-1')
   const [dataStatus, setDataStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -322,12 +319,10 @@ function App() {
     setDraftUnitId(defaultUnitKey)
     if (existing) {
       setDraftLoadedEnergy([...existing.loadedEnergy])
-      setDraftManualOverride(existing.manualPowerOverride)
       setDraftMods(existing.mods ?? [])
     } else {
       const unit = selectedUnitOptions.find((o) => o.key === defaultUnitKey)
       setDraftLoadedEnergy(Array(unit?.slots.length ?? 0).fill(null))
-      setDraftManualOverride(null)
       setDraftMods([])
     }
   }
@@ -336,7 +331,6 @@ function App() {
     setDraftUnitId(newKey)
     const unit = selectedUnitOptions.find((o) => o.key === newKey)
     setDraftLoadedEnergy(Array(unit?.slots.length ?? 0).fill(null))
-    setDraftManualOverride(null)
     setDraftMods([])
   }
 
@@ -379,7 +373,6 @@ function App() {
                       activateCount: 0,
                       slots: unit.slots,
                       loadedEnergy: nextLoadedEnergy,
-                      manualPowerOverride: draftManualOverride,
                       effect: unit.effect,
                       args: unit.args,
                       mods: draftMods,
@@ -744,7 +737,6 @@ function App() {
                 unitId: cell.unitId,
                 level: cell.level,
                 loadedEnergy: cell.loadedEnergy,
-                manualPowerOverride: cell.manualPowerOverride,
                 activateCount: 0,
                 mods: cell.mods ?? [],
               }
@@ -793,7 +785,6 @@ function App() {
             effect: option.effect,
             args: option.args,
             loadedEnergy: cell.loadedEnergy,
-            manualPowerOverride: cell.manualPowerOverride,
             activateCount: cell.activateCount ?? 0,
             mods: cell.mods ?? [],
           } satisfies LaneUnit
@@ -872,16 +863,11 @@ function App() {
         activateCount: 0,
         slots: draftUnit.slots,
         loadedEnergy: draftLoadedEnergy,
-        manualPowerOverride: draftManualOverride,
         effect: draftUnit.effect,
         args: draftUnit.args,
         mods: draftMods,
       }
     : null
-
-  const showManualOverride =
-    draftUnit &&
-    (draftUnit.unitType === 'support' || !IMPLEMENTED_SKILLS.has(draftUnit.skillPath))
 
   return (
     <main className="app-shell">
@@ -1122,35 +1108,13 @@ function App() {
               <div className="text-sm font-medium">
                 Computed strength:{' '}
                 <strong>
-                  {draftManualOverride !== null
-                    ? draftManualOverride
-                    : draftLoadedEnergy
-                        .filter((e): e is LoadedEnergy => e !== null)
-                        .reduce((acc, e) => acc + e.point, 0) + effectiveStaticPower(draftLaneUnit)}
+                  {draftLoadedEnergy
+                    .filter((e): e is LoadedEnergy => e !== null)
+                    .reduce((acc, e) => acc + e.point, 0) + effectiveStaticPower(draftLaneUnit)}
                 </strong>
                 {effectiveStaticPower(draftLaneUnit) > 0 && (
                   <span className="text-muted-foreground ml-1">(+{effectiveStaticPower(draftLaneUnit)} PA)</span>
                 )}
-              </div>
-            )}
-
-            {showManualOverride && (
-              <div className="grid gap-2">
-                <Label htmlFor="manual-override">
-                  Manual strength override
-                  {draftUnit?.unitType === 'support' ? ' (support unit)' : ' (effect not computed)'}
-                </Label>
-                <Input
-                  id="manual-override"
-                  min="0"
-                  type="number"
-                  value={draftManualOverride ?? ''}
-                  placeholder="0"
-                  onChange={(event) => {
-                    const val = event.target.value
-                    setDraftManualOverride(val === '' ? null : clampNumber(Number(val)))
-                  }}
-                />
               </div>
             )}
 
@@ -1244,7 +1208,6 @@ function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
       activateCount: 0,
       slots: option.slots,
       loadedEnergy: Array(option.slots.length).fill(null),
-      manualPowerOverride: null,
       effect: option.effect,
       args: option.args,
       mods: [],

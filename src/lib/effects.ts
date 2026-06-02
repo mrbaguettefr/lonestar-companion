@@ -496,21 +496,6 @@ export const IMPLEMENTED_SKILLS = new Set(Object.keys(SKILL_HANDLERS))
 // ── Main export ─────────────────────────────────────────────────────────────
 
 export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStrengthBreakdown {
-  // Manual override takes precedence
-  if (unit.manualPowerOverride !== null) {
-    return {
-      cellIndex: ctx.cellIndex,
-      basePoints: 0,
-      staticPower: 0,
-      supportPower: 0,
-      effectBonus: 0,
-      isDoubled: false,
-      total: unit.manualPowerOverride,
-      effectLabel: unit.effect ? formatEffect(unit.effect, unit.args) : null,
-      isManualOverride: true,
-    }
-  }
-
   const loaded = unit.loadedEnergy.filter((e): e is LoadedEnergy => e !== null)
   const basePoints = sum(loaded.map((e) => e.point))
   const staticPower = effectiveStaticPower(unit)
@@ -526,7 +511,6 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
       isDoubled: false,
       total: 0,
       effectLabel: unit.effect ? formatEffect(unit.effect, unit.args) : null,
-      isManualOverride: false,
     }
   }
 
@@ -548,7 +532,6 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
     isDoubled: result.isDoubled,
     total,
     effectLabel: result.effectLabel,
-    isManualOverride: false,
   }
 }
 

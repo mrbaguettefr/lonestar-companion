@@ -19,7 +19,6 @@ export type UnitStrengthBreakdown = {
   isDoubled: boolean
   total: number
   effectLabel: string | null
-  isManualOverride: boolean
 }
 
 export type BattleContext = {
@@ -43,7 +42,6 @@ export type LaneUnit = {
   activateCount: number
   slots: string[]
   loadedEnergy: (LoadedEnergy | null)[]
-  manualPowerOverride: number | null
   effect: string
   args: number[]
   mods: UnitModId[]

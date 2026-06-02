@@ -40,7 +40,6 @@ export function summarizeLanes(lanes: Lane[], battleContext: BattleContext): Lan
           isDoubled: false,
           total: 0,
           effectLabel: null,
-          isManualOverride: false,
         }
       }
 
@@ -432,7 +431,6 @@ function solutionOutcomeKey(
         breakdown.effectBonus,
         breakdown.isDoubled ? 1 : 0,
         breakdown.total,
-        breakdown.isManualOverride ? 1 : 0,
       ].join(':')
 
       if (cell.unitType === 'attack') {

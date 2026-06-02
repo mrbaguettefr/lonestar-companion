@@ -30,7 +30,6 @@ type LaneSectionProps = {
 }
 
 function buildStrengthFormula(cell: LaneUnit, breakdown: UnitStrengthBreakdown): string {
-  if (breakdown.isManualOverride) return `Manual: ${breakdown.total}`
   if (cell.unitType === 'support') return 'Support unit'
 
   const energies = cell.loadedEnergy.filter((e): e is LoadedEnergy => e !== null)

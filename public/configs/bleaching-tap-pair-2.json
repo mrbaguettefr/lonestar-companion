@@ -1,0 +1,148 @@
+{
+  "version": 2,
+  "shipId": "7",
+  "lanes": [
+    {
+      "goal": 0,
+      "cells": [
+        {
+          "unitId": 11801,
+          "level": 2,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": []
+        },
+        {
+          "unitId": 11001,
+          "level": 2,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": []
+        },
+        null
+      ]
+    },
+    {
+      "goal": 15,
+      "cells": [
+        {
+          "unitId": 11002,
+          "level": 2,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": [
+            "power-plus-1"
+          ]
+        },
+        {
+          "unitId": 12803,
+          "level": 1,
+          "loadedEnergy": [],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": []
+        },
+        {
+          "unitId": 13001,
+          "level": 1,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": []
+        }
+      ]
+    },
+    {
+      "goal": 0,
+      "cells": [
+        {
+          "unitId": 11828,
+          "level": 1,
+          "loadedEnergy": [],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": []
+        },
+        {
+          "unitId": 14001,
+          "level": 1,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0,
+          "mods": []
+        },
+        null
+      ]
+    }
+  ],
+  "energies": [
+    {
+      "id": 1780436151824.2268,
+      "color": "white",
+      "point": 1
+    },
+    {
+      "id": 1780437502477.5227,
+      "color": "white",
+      "point": 6
+    },
+    {
+      "id": 1780437512806.5383,
+      "color": "white",
+      "point": 6
+    },
+    {
+      "id": 1780437543895.3477,
+      "color": "white",
+      "point": 1
+    },
+    {
+      "id": 1780437565197.7537,
+      "color": "white",
+      "point": 6
+    },
+    {
+      "id": 1780436151824.5298,
+      "color": "white",
+      "point": 3
+    },
+    {
+      "id": 1780411769523,
+      "color": "white",
+      "point": 2
+    },
+    {
+      "id": 1780436151823.5603,
+      "color": "white",
+      "point": 7
+    },
+    {
+      "id": 1780437773366.9597,
+      "color": "white",
+      "point": 1
+    },
+    {
+      "id": 1780436151823.9636,
+      "color": "blue",
+      "point": 5
+    }
+  ]
+}
