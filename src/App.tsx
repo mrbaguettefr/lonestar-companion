@@ -75,6 +75,37 @@ function resetLaneActivations(lanes: Lane[]): Lane[] {
   }))
 }
 
+function resetBoardState(lanes: Lane[], energies: Energy[]): { lanes: Lane[]; energies: Energy[] } {
+  let nextEnergyId = Math.max(0, ...energies.map((energy) => energy.id)) + 1
+  const returnedEnergies: Energy[] = []
+  const resetLanes = resetLaneActivations(lanes).map((lane) => ({
+    ...lane,
+    cells: lane.cells.map((cell) => {
+      if (!cell) return cell
+
+      for (const energy of cell.loadedEnergy) {
+        if (energy) {
+          returnedEnergies.push({
+            id: nextEnergyId++,
+            color: energy.color,
+            point: energy.point,
+          })
+        }
+      }
+
+      return {
+        ...cell,
+        loadedEnergy: Array(cell.slots.length).fill(null),
+      }
+    }),
+  }))
+
+  return {
+    lanes: resetLanes,
+    energies: [...energies, ...returnedEnergies],
+  }
+}
+
 type HistoryEntry = {
   lanes: Lane[]
   energies: Energy[]
@@ -303,10 +334,24 @@ function App() {
     if (!editingCell) return
     const unit = selectedUnitOptions.find((option) => option.key === draftUnitId)
     if (!unit) return
+    const existing = lanes[editingCell.laneIndex]?.cells[editingCell.cellIndex] ?? null
+    const isChangingLoadedUnit =
+      existing !== null &&
+      `${existing.unitId}:${existing.level}` !== draftUnitId &&
+      existing.loadedEnergy.some(Boolean)
+    const boardState = isChangingLoadedUnit ? resetBoardState(lanes, energies) : { lanes, energies }
+    const nextLoadedEnergy = isChangingLoadedUnit
+      ? Array(unit.slots.length).fill(null)
+      : draftLoadedEnergy
 
     markInputChanged()
-    setLanes((current) =>
-      current.map((lane, index) =>
+    if (isChangingLoadedUnit) {
+      setEnergies(boardState.energies)
+      setActivationEnergyPointsGenerated(0)
+      setActivationEnergyGeneratedCount(0)
+    }
+    setLanes(
+      boardState.lanes.map((lane, index) =>
         index === editingCell.laneIndex
           ? {
               ...lane,
@@ -323,7 +368,7 @@ function App() {
                       maxActivations: unit.maxActivations,
                       activateCount: 0,
                       slots: unit.slots,
-                      loadedEnergy: draftLoadedEnergy,
+                      loadedEnergy: nextLoadedEnergy,
                       manualPowerOverride: draftManualOverride,
                       effect: unit.effect,
                       args: unit.args,
@@ -632,35 +677,13 @@ function App() {
     setActivationEnergyGeneratedCount((current) => current + replay.activationEnergyGeneratedCount)
   }
 
-  function clearEnergies() {
+  function resetBoard() {
     pushHistory()
-    if (presolvedLanes !== null && presolvedEnergies !== null) {
-      // Restore the exact state from before Solve was pressed (removes generated energies too)
-      setLanes(resetLaneActivations(presolvedLanes))
-      setEnergies(presolvedEnergies)
-    } else {
-      // Unload all slots and return energies to hand
-      const toReturn: LoadedEnergy[] = lanes.flatMap((lane) =>
-        lane.cells.flatMap((cell) =>
-          cell ? cell.loadedEnergy.filter((e): e is LoadedEnergy => e !== null) : [],
-        ),
-      )
-      setLanes((current) =>
-        current.map((lane) => ({
-          ...lane,
-          cells: lane.cells.map((cell) =>
-            cell
-              ? {
-                  ...cell,
-                  activateCount: 0,
-                  loadedEnergy: Array(cell.slots.length).fill(null),
-                }
-              : cell,
-          ),
-        })),
-      )
-      returnMultipleEnergiesToHand(toReturn)
-    }
+    const sourceLanes = presolvedLanes ?? lanes
+    const sourceEnergies = presolvedEnergies ?? energies
+    const resetState = resetBoardState(sourceLanes, sourceEnergies)
+    setLanes(resetState.lanes)
+    setEnergies(resetState.energies)
     setActivationEnergyPointsGenerated(0)
     setActivationEnergyGeneratedCount(0)
     setHasSolved(false)
@@ -684,10 +707,13 @@ function App() {
   // ── Import / Export ────────────────────────────────────────────────────
 
   function exportToClipboard() {
+    const sourceLanes = presolvedLanes ?? lanes
+    const sourceEnergies = presolvedEnergies ?? energies
+    const resetState = resetBoardState(sourceLanes, sourceEnergies)
     const config: ConfigExport = {
       version: 2,
       shipId: selectedShipId,
-      lanes: lanes.map((lane) => ({
+      lanes: resetState.lanes.map((lane) => ({
         goal: lane.goal,
         cells: lane.cells.map((cell) =>
           cell
@@ -696,13 +722,13 @@ function App() {
                 level: cell.level,
                 loadedEnergy: cell.loadedEnergy,
                 manualPowerOverride: cell.manualPowerOverride,
-                activateCount: cell.activateCount,
+                activateCount: 0,
                 mods: cell.mods ?? [],
               }
             : null,
         ),
       })),
-      energies,
+      energies: resetState.energies,
     }
     const json = JSON.stringify(config, null, 2)
     navigator.clipboard.writeText(json).then(() => {
@@ -775,9 +801,10 @@ function App() {
     setRedoStack([])
     setActivationEnergyPointsGenerated(0)
     setActivationEnergyGeneratedCount(0)
+    const resetState = resetBoardState(restoredLanes, config.energies)
     setSelectedShipId(config.shipId ?? '')
-    setLanes(restoredLanes)
-    setEnergies(config.energies)
+    setLanes(resetState.lanes)
+    setEnergies(resetState.energies)
     setImportError(null)
   }
 
@@ -847,7 +874,7 @@ function App() {
         canFastImport={dataStatus === 'ready'}
         onUndo={undo}
         onRedo={redo}
-        onClear={clearEnergies}
+        onReset={resetBoard}
       />
 
       <section className="ship-panel">
