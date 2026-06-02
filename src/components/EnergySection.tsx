@@ -1,9 +1,7 @@
 import { type DragEvent, useState } from 'react'
-import { clampNumber } from '../lib/numbers'
 import { energyColors, energyPoints } from '../lib/gameData'
 import type { DragPayload, Energy } from '../types/lonestar'
 import { Button } from './ui/button'
-import { Input } from './ui/input'
 import { Label } from './ui/label'
 import {
   Dialog,
@@ -16,7 +14,7 @@ import {
 
 type EnergySectionProps = {
   energies: Energy[]
-  onAddEnergy: (spec: { color: string; point: number; count: number }) => void
+  onAddEnergy: (spec: { color: string; point: number }) => void
   onRemoveEnergy: (id: number) => void
   onUpdateEnergy: (id: number, patch: Partial<Energy>) => void
   onDropEnergyToHand: (payload: DragPayload) => void
@@ -46,14 +44,12 @@ export function EnergySection({
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [draftColor, setDraftColor] = useState('white')
   const [draftPoint, setDraftPoint] = useState(3)
-  const [draftCount, setDraftCount] = useState(1)
   const [isDragOver, setIsDragOver] = useState(false)
 
   function openAddDialog() {
     setDialogMode('add')
     setDraftColor('white')
     setDraftPoint(3)
-    setDraftCount(1)
     setEditingId(null)
     setIsDialogOpen(true)
   }
@@ -63,15 +59,14 @@ export function EnergySection({
     setEditingId(energy.id)
     setDraftColor(energy.color)
     setDraftPoint(energy.point)
-    setDraftCount(energy.count)
     setIsDialogOpen(true)
   }
 
   function handleSubmit() {
     if (dialogMode === 'add') {
-      onAddEnergy({ color: draftColor, point: draftPoint, count: draftCount })
+      onAddEnergy({ color: draftColor, point: draftPoint })
     } else if (editingId !== null) {
-      onUpdateEnergy(editingId, { color: draftColor, point: draftPoint, count: draftCount })
+      onUpdateEnergy(editingId, { color: draftColor, point: draftPoint })
     }
     setIsDialogOpen(false)
   }
@@ -106,7 +101,7 @@ export function EnergySection({
               key={energy.id}
               className={`energy-card ${energy.color}`}
               draggable
-              title={`${energy.color} ${energy.point}pt ×${energy.count} — drag to a unit slot`}
+              title={`${energy.color} ${energy.point}pt — drag to a unit slot`}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData(
@@ -122,7 +117,6 @@ export function EnergySection({
               onClick={() => openEditDialog(energy)}
             >
               <span className="energy-card-point">{energy.point}</span>
-              <span className="energy-card-count">×{energy.count}</span>
               <button
                 className="energy-card-remove"
                 type="button"
@@ -163,54 +157,46 @@ export function EnergySection({
               </DialogTitle>
               <DialogDescription>
                 {dialogMode === 'add'
-                  ? 'Choose the color, point value, and quantity to add.'
-                  : 'Update the color, point value, or quantity.'}
+                  ? 'Choose the color and point value to add.'
+                  : 'Update the color or point value.'}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-2">
-              <Label htmlFor="energy-color">Color</Label>
-              <div className="flex items-center gap-2">
-                <select
-                  id="energy-color"
-                  value={draftColor}
-                  onChange={(event) => setDraftColor(event.target.value)}
-                >
-                  {energyColors.map((color) => (
-                    <option key={color}>{color}</option>
-                  ))}
-                </select>
-                <span className={`swatch ${draftColor}`} aria-hidden="true" />
+            <div className="grid gap-2" role="radiogroup" aria-labelledby="energy-color-label">
+              <Label id="energy-color-label">Color</Label>
+              <div className="energy-radio-row">
+                {energyColors.map((color) => (
+                  <label key={color} className={`energy-radio energy-radio--color ${draftColor === color ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="energy-color"
+                      value={color}
+                      checked={draftColor === color}
+                      onChange={() => setDraftColor(color)}
+                    />
+                    <span className={`swatch ${color}`} aria-hidden="true" />
+                    <span>{color}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="energy-point">Point value</Label>
-              <select
-                id="energy-point"
-                value={draftPoint}
-                onChange={(event) => setDraftPoint(Number(event.target.value))}
-              >
+            <div className="grid gap-2" role="radiogroup" aria-labelledby="energy-point-label">
+              <Label id="energy-point-label">Point value</Label>
+              <div className="energy-radio-row energy-radio-row--points">
                 {energyPoints.map((pt) => (
-                  <option key={pt} value={pt}>
-                    {pt}pt
-                  </option>
+                  <label key={pt} className={`energy-radio energy-radio--point ${draftPoint === pt ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="energy-point"
+                      value={pt}
+                      checked={draftPoint === pt}
+                      onChange={() => setDraftPoint(pt)}
+                    />
+                    <span>{pt}</span>
+                  </label>
                 ))}
-              </select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="energy-count">Quantity</Label>
-              <Input
-                id="energy-count"
-                min="1"
-                max="99"
-                type="number"
-                value={draftCount}
-                onChange={(event) =>
-                  setDraftCount(Math.max(1, clampNumber(Number(event.target.value))))
-                }
-              />
+              </div>
             </div>
 
             <DialogFooter>

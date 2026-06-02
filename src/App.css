@@ -245,17 +245,6 @@
   text-shadow: none;
 }
 
-.energy-card-count {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.85);
-  margin-top: 2px;
-}
-
-.energy-card.white .energy-card-count {
-  color: rgba(0,0,0,0.5);
-}
-
 .energy-card-remove {
   position: absolute;
   top: -7px;
@@ -595,6 +584,49 @@ select:focus {
 
 .swatch.orange {
   background: #f08a30;
+}
+
+.energy-radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.energy-radio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.energy-radio input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.energy-radio.selected {
+  border-color: #2f6fed;
+  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.18);
+}
+
+.energy-radio:has(input:focus-visible) {
+  outline: 2px solid #2f6fed;
+  outline-offset: 2px;
+}
+
+.energy-radio--point {
+  width: 36px;
+  padding: 6px 0;
 }
 
 .solution-panel {

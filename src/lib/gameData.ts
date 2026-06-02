@@ -22,9 +22,9 @@ export const energyPoints = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 export const initialLanes: Lane[] = []
 
 export const initialEnergies: Energy[] = [
-  { id: 1, color: 'white', count: 1, point: 3 },
-  { id: 2, color: 'blue', count: 1, point: 3 },
-  { id: 3, color: 'orange', count: 1, point: 3 },
+  { id: 1, color: 'white', point: 3 },
+  { id: 2, color: 'blue', point: 3 },
+  { id: 3, color: 'orange', point: 3 },
 ]
 
 export function canDropEnergyInSlot(energyColor: string, slotColor: string): boolean {

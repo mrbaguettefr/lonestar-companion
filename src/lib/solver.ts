@@ -210,6 +210,7 @@ function countGeneratedEnergiesInCurrentBoard(lanes: Lane[]): number {
 export function evaluateCurrentBoard(
   lanes: Lane[],
   laneSummaries: LaneSummary[],
+  bonusEnergyGenerated = 0,
 ): RankedSolution {
   const placements = collectLoadedPlacements(lanes)
   const strengthGenerated = sum(laneSummaries.map((s) => s.strength))
@@ -224,7 +225,7 @@ export function evaluateCurrentBoard(
     damageDealt,
     damageReceived,
     efficiencyRatio: strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0,
-    energyGenerated: countGeneratedEnergiesInCurrentBoard(lanes),
+    energyGenerated: countGeneratedEnergiesInCurrentBoard(lanes) + bonusEnergyGenerated,
   }
 
   return {
@@ -238,23 +239,15 @@ export function evaluateCurrentBoard(
 }
 
 function addEnergyToHand(energies: Energy[], loaded: LoadedEnergy, idSeed: number): Energy[] {
-  const existing = energies.find((e) => e.color === loaded.color && e.point === loaded.point)
-  if (existing) {
-    return energies.map((e) => (
-      e === existing ? { ...e, count: e.count + 1 } : e
-    ))
-  }
-  return [...energies, { id: idSeed, color: loaded.color, point: loaded.point, count: 1 }]
+  return [...energies, { id: idSeed, color: loaded.color, point: loaded.point }]
 }
 
 function consumeEnergyFromHand(energies: Energy[], loaded: LoadedEnergy): Energy[] {
   const idx = energies.findIndex(
-    (e) => e.color === loaded.color && e.point === loaded.point && e.count > 0,
+    (e) => e.color === loaded.color && e.point === loaded.point,
   )
   if (idx === -1) return energies
-  return energies
-    .map((e, i) => (i === idx ? { ...e, count: e.count - 1 } : e))
-    .filter((e) => e.count > 0)
+  return energies.filter((_, i) => i !== idx)
 }
 
 function sortPlacementsForReplay(lanes: Lane[], placements: Placement[]): Placement[] {
@@ -390,7 +383,7 @@ function evaluateSolution(
 ): EvaluatedSolution {
   const replay = replayPlacements(lanes, initialEnergies, placements)
   const simLanes = replay.lanes
-  const finalHandCount = sum(replay.energies.map((e) => e.count))
+  const finalHandCount = replay.energies.length
   const summaries = summarizeLanes(simLanes, { handEnergyCount: finalHandCount })
   const strengthGenerated = sum(summaries.map((s) => s.strength))
   const damageDealt = sum(summaries.map((s) => s.surplus))
@@ -690,9 +683,7 @@ export function solveMultiple(
   energies: Energy[],
   max = 5,
 ): RankedSolution[] {
-  const basePool: SearchCard[] = energies.flatMap((e) =>
-    Array<SearchCard>(e.count).fill({ color: e.color, point: e.point }),
-  )
+  const basePool: SearchCard[] = energies.map((e) => ({ color: e.color, point: e.point }))
   const totalHandCount = basePool.length
 
   // Collect all empty slots across all lanes
@@ -731,14 +722,10 @@ export function solveMultiple(
     for (const idx of subset) {
       const { unit } = activatable[idx]
       const modifiedEnergies = triggerActivation(unit, pool.reduce<Energy[]>((acc, c) => {
-        const existing = acc.find((e) => e.color === c.color && e.point === c.point)
-        if (existing) { existing.count++ } else { acc.push({ id: acc.length, color: c.color, count: 1, point: c.point }) }
-        return acc
+        return [...acc, { id: acc.length, color: c.color, point: c.point }]
       }, []))
       if (modifiedEnergies !== null) {
-        pool = modifiedEnergies.flatMap((e) =>
-          Array<SearchCard>(e.count).fill({ color: e.color, point: e.point }),
-        )
+        pool = modifiedEnergies.map((e) => ({ color: e.color, point: e.point }))
       }
     }
 
@@ -779,7 +766,7 @@ export function solveOptimal(
 }
 
 export function buildBattleContext(energies: Energy[]): BattleContext {
-  return { handEnergyCount: sum(energies.map((e) => e.count)) }
+  return { handEnergyCount: energies.length }
 }
 
 export function previewUnitStrength(

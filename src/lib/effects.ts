@@ -722,13 +722,12 @@ export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] 
   const args = unit.args
   let nextId = Math.max(0, ...energies.map((e) => e.id)) + 1
 
-  function addOrMerge(result: Energy[], color: string, point: number, count = 1): Energy[] {
+  function addCards(result: Energy[], color: string, point: number, count = 1): Energy[] {
     const clamped = Math.min(9, Math.max(1, point))
-    const existing = result.find((e) => e.color === color && e.point === clamped)
-    if (existing) {
-      return result.map((e) => (e === existing ? { ...e, count: e.count + count } : e))
-    }
-    return [...result, { id: nextId++, color, count, point: clamped }]
+    return [
+      ...result,
+      ...Array.from({ length: count }, () => ({ id: nextId++, color, point: clamped })),
+    ]
   }
 
   switch (unit.skillPath) {
@@ -739,7 +738,7 @@ export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] 
       let result = boosted.filter((e) => e.color === 'white')
       for (const e of boosted) {
         if (e.color === 'orange' || e.color === 'blue') {
-          result = addOrMerge(result, 'white', e.point, e.count)
+          result = addCards(result, 'white', e.point)
         }
       }
       return result
@@ -758,7 +757,7 @@ export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] 
     // Weak Energy Source lv1: generate 1 white 1-pt energy; lv2: 1 orange 1-pt
     case 'Support_Player/Skill_StrongGenerate': {
       const color = unit.effect.includes('Orange') ? 'orange' : 'white'
-      return addOrMerge([...energies], color, 1)
+      return addCards([...energies], color, 1)
     }
 
     // Pulse Recharger lv1: generate args[1] white args[2]-pt; lv2: orange
@@ -766,7 +765,7 @@ export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] 
       const color = unit.effect.includes('Orange') ? 'orange' : 'white'
       const count = args[1] ?? 1
       const point = args[2] ?? 6
-      return addOrMerge([...energies], color, point, count)
+      return addCards([...energies], color, point, count)
     }
 
     default:

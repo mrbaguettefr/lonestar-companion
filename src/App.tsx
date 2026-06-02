@@ -58,6 +58,16 @@ type ConfigExport =
   | { version: 1; shipId: string; lanes: Lane[]; energies: Energy[] }
   | { version: 2; shipId: string; lanes: Array<{ cells: ExportedCell[]; goal: number }>; energies: Energy[] }
 
+function createHandEnergy(color: string, point: number): Energy {
+  return { id: Date.now() + Math.random(), color, point }
+}
+
+type HistoryEntry = {
+  lanes: Lane[]
+  energies: Energy[]
+  activationEnergyGenerated: number
+}
+
 function App() {
   const [lanes, setLanes] = useState<Lane[]>(initialLanes)
   const [energies, setEnergies] = useState<Energy[]>(initialEnergies)
@@ -79,14 +89,16 @@ function App() {
   const [solverStrategy, setSolverStrategy] = useState<SolverStrategy>('best')
   const [presolvedLanes, setPresolvedLanes] = useState<Lane[] | null>(null)
   const [presolvedEnergies, setPresolvedEnergies] = useState<Energy[] | null>(null)
-  const [undoStack, setUndoStack] = useState<{ lanes: Lane[]; energies: Energy[] }[]>([])
-  const [redoStack, setRedoStack] = useState<{ lanes: Lane[]; energies: Energy[] }[]>([])
+  const [presolvedActivationEnergyGenerated, setPresolvedActivationEnergyGenerated] = useState<number | null>(null)
+  const [activationEnergyGenerated, setActivationEnergyGenerated] = useState(0)
+  const [undoStack, setUndoStack] = useState<HistoryEntry[]>([])
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([])
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
   const currentEvaluation = useMemo(
-    () => evaluateCurrentBoard(lanes, laneSummaries),
-    [lanes, laneSummaries],
+    () => evaluateCurrentBoard(lanes, laneSummaries, activationEnergyGenerated),
+    [lanes, laneSummaries, activationEnergyGenerated],
   )
   const solution = useMemo(
     () => solveOptimal(lanes, laneSummaries, energies),
@@ -188,30 +200,33 @@ function App() {
     setLoadedSolutionIdx(0)
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
+    setPresolvedActivationEnergyGenerated(null)
   }
 
   function pushHistory() {
-    setUndoStack((prev) => [...prev.slice(-29), { lanes, energies }])
+    setUndoStack((prev) => [...prev.slice(-29), { lanes, energies, activationEnergyGenerated }])
     setRedoStack([])
   }
 
   function undo() {
     if (undoStack.length === 0) return
     const prev = undoStack[undoStack.length - 1]
-    setRedoStack((r) => [...r.slice(-29), { lanes, energies }])
+    setRedoStack((r) => [...r.slice(-29), { lanes, energies, activationEnergyGenerated }])
     setUndoStack((u) => u.slice(0, -1))
     setLanes(prev.lanes)
     setEnergies(prev.energies)
+    setActivationEnergyGenerated(prev.activationEnergyGenerated)
     markInputChanged()
   }
 
   function redo() {
     if (redoStack.length === 0) return
     const next = redoStack[redoStack.length - 1]
-    setUndoStack((u) => [...u.slice(-29), { lanes, energies }])
+    setUndoStack((u) => [...u.slice(-29), { lanes, energies, activationEnergyGenerated }])
     setRedoStack((r) => r.slice(0, -1))
     setLanes(next.lanes)
     setEnergies(next.energies)
+    setActivationEnergyGenerated(next.activationEnergyGenerated)
     markInputChanged()
   }
 
@@ -229,6 +244,7 @@ function App() {
 
   function selectShip(shipId: string) {
     markInputChanged()
+    setActivationEnergyGenerated(0)
     setSelectedShipId(shipId)
     setEditingCell(null)
     const ship = ships.find((candidate) => String(candidate.id) === shipId)
@@ -307,6 +323,12 @@ function App() {
     markInputChanged()
 
     if (newEnergies !== null) {
+      const generatedValue = Math.max(
+        0,
+        newEnergies.reduce((total, energy) => total + energy.point, 0) -
+          energies.reduce((total, energy) => total + energy.point, 0),
+      )
+      setActivationEnergyGenerated((current) => current + generatedValue)
       setEnergies(newEnergies)
     }
 
@@ -377,11 +399,11 @@ function App() {
     )
   }
 
-  function addEnergy(spec: { color: string; point: number; count: number }) {
+  function addEnergy(spec: { color: string; point: number }) {
     markInputChanged()
     setEnergies((current) => [
       ...current,
-      { id: Date.now(), color: spec.color, point: spec.point, count: spec.count },
+      createHandEnergy(spec.color, spec.point),
     ])
   }
 
@@ -403,12 +425,7 @@ function App() {
     setEnergies((current) => {
       let updated = [...current]
       for (const e of toReturn) {
-        const existing = updated.find((h) => h.color === e.color && h.point === e.point)
-        if (existing) {
-          updated = updated.map((h) => h.id === existing.id ? { ...h, count: h.count + 1 } : h)
-        } else {
-          updated = [...updated, { id: Date.now() + Math.random(), color: e.color, point: e.point, count: 1 }]
-        }
+        updated = [...updated, createHandEnergy(e.color, e.point)]
       }
       return updated
     })
@@ -417,25 +434,20 @@ function App() {
   function hasEnergyInHand(payload: Extract<DragPayload, { type: 'energy-hand' }>) {
     return energies.some(
       (energy) =>
-        energy.count > 0 &&
-        (energy.id === payload.energyId ||
-          (energy.color === payload.color && energy.point === payload.point)),
+        energy.id === payload.energyId ||
+        (energy.color === payload.color && energy.point === payload.point),
     )
   }
 
   function consumeEnergyFromHand(current: Energy[], payload: Extract<DragPayload, { type: 'energy-hand' }>) {
-    const byId = current.findIndex((energy) => energy.id === payload.energyId && energy.count > 0)
+    const byId = current.findIndex((energy) => energy.id === payload.energyId)
     const fallback = current.findIndex(
-      (energy) => energy.color === payload.color && energy.point === payload.point && energy.count > 0,
+      (energy) => energy.color === payload.color && energy.point === payload.point,
     )
     const idx = byId !== -1 ? byId : fallback
     if (idx === -1) return current
 
-    return current
-      .map((energy, energyIndex) =>
-        energyIndex === idx ? { ...energy, count: energy.count - 1 } : energy,
-      )
-      .filter((energy) => energy.count > 0)
+    return current.filter((_, energyIndex) => energyIndex !== idx)
   }
 
   // Drop energy from hand or another slot onto a unit slot
@@ -516,28 +528,14 @@ function App() {
         (payload.type === 'energy-hand' || (payload.type === 'energy-slot' && !canSwapToSource))
 
       if (needsReturn) {
-        const existing = updated.find((e) => e.color === displaced.color && e.point === displaced.point)
-        if (existing) {
-          updated = updated.map((e) =>
-            e.id === existing.id ? { ...e, count: e.count + 1 } : e,
-          )
-        } else {
-          updated = [...updated, { id: Date.now() + 1, color: displaced.color, point: displaced.point, count: 1 }]
-        }
+        updated = [...updated, createHandEnergy(displaced.color, displaced.point)]
       }
 
       // Trigger support unit on-load effect (energy generation)
       if (targetCell.unitType === 'support') {
         const generated = triggerSupportOnLoadForSlot(targetCell, toSlot, energyToLoad)
         for (const gen of generated) {
-          const existing = updated.find((e) => e.color === gen.color && e.point === gen.point)
-          if (existing) {
-            updated = updated.map((e) =>
-              e.id === existing.id ? { ...e, count: e.count + 1 } : e,
-            )
-          } else {
-            updated = [...updated, { id: Date.now() + Math.random(), color: gen.color, point: gen.point, count: 1 }]
-          }
+          updated = [...updated, createHandEnergy(gen.color, gen.point)]
         }
       }
 
@@ -569,11 +567,7 @@ function App() {
     )
 
     setEnergies((current) => {
-      const existing = current.find((e) => e.color === color && e.point === point)
-      if (existing) {
-        return current.map((e) => e.id === existing.id ? { ...e, count: e.count + 1 } : e)
-      }
-      return [...current, { id: Date.now(), color, point, count: 1 }]
+      return [...current, createHandEnergy(color, point)]
     })
   }
 
@@ -594,6 +588,7 @@ function App() {
       // Restore the exact state from before Solve was pressed (removes generated energies too)
       setLanes(presolvedLanes)
       setEnergies(presolvedEnergies)
+      setActivationEnergyGenerated(presolvedActivationEnergyGenerated ?? 0)
     } else {
       // Unload all slots and return energies to hand
       const toReturn: LoadedEnergy[] = lanes.flatMap((lane) =>
@@ -616,6 +611,7 @@ function App() {
     setLoadedSolutionIdx(0)
     setPresolvedLanes(null)
     setPresolvedEnergies(null)
+    setPresolvedActivationEnergyGenerated(null)
   }
 
   function loadSolution(idx: number) {
@@ -718,6 +714,7 @@ function App() {
     markInputChanged()
     setUndoStack([])
     setRedoStack([])
+    setActivationEnergyGenerated(0)
     setSelectedShipId(config.shipId ?? '')
     setLanes(restoredLanes)
     setEnergies(config.energies)
@@ -846,11 +843,18 @@ function App() {
             solverStrategy={solverStrategy}
             onStrategyChange={setSolverStrategy}
             onSolve={() => {
-              const results = solveMultiple(lanes, laneSummaries, energies)
+              const results = solveMultiple(lanes, laneSummaries, energies).map((result) => ({
+                ...result,
+                stats: {
+                  ...result.stats,
+                  energyGenerated: result.stats.energyGenerated + activationEnergyGenerated,
+                },
+              }))
               const displayedFirst = sortByStrategy(results, solverStrategy)[0]
               const displayedFirstIdx = displayedFirst ? results.indexOf(displayedFirst) : 0
               setPresolvedLanes(lanes)
               setPresolvedEnergies(energies)
+              setPresolvedActivationEnergyGenerated(activationEnergyGenerated)
               setSolvedResults(results)
               setLoadedSolutionIdx(displayedFirstIdx)
               if (displayedFirst) applyPlacements(displayedFirst.placements)
@@ -934,10 +938,10 @@ function App() {
                         {matchingEnergies.length > 0
                           ? matchingEnergies.map((e) => (
                               <option
-                                key={`${e.color}:${e.point}`}
+                                key={e.id}
                                 value={`${e.color}:${e.point}`}
                               >
-                                {e.color} {e.point}pt (×{e.count} in hand)
+                                {e.color} {e.point}pt
                               </option>
                             ))
                           : energyPoints.map((pt) => (

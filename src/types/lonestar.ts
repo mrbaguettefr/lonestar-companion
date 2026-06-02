@@ -49,14 +49,7 @@ export type LaneUnit = {
 export type Energy = {
   id: number
   color: string
-  count: number
   point: number
-}
-
-export type Assignment = {
-  laneIndex: number
-  color: string
-  count: number
 }
 
 export type LaneSummary = {

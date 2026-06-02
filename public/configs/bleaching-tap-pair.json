@@ -88,26 +88,27 @@
     {
       "id": 1,
       "color": "white",
-      "count": 1,
       "point": 3
     },
     {
       "id": 2,
       "color": "blue",
-      "count": 2,
+      "point": 2
+    },
+    {
+      "id": 3,
+      "color": "blue",
       "point": 2
     },
     {
       "id": 1780411761010.7068,
       "color": "white",
-      "point": 4,
-      "count": 1
+      "point": 4
     },
     {
       "id": 1780411769522,
       "color": "orange",
-      "point": 1,
-      "count": 1
+      "point": 1
     }
   ]
 }
