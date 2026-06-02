@@ -1,5 +1,5 @@
 import type { BattleContext, Energy, Lane, LaneUnit, LaneSummary, LoadedEnergy } from '../types/lonestar'
-import { AUTO_ACTIVATION_SKILLS, computeUnitStrength, computeSupportPassiveBonus, triggerActivation, triggerSupportOnLoadForSlot, type EffectContext } from './effects'
+import { AUTO_ACTIVATION_SKILLS, computeActivationEnergyGenerated, computeUnitStrength, computeSupportPassiveBonus, triggerActivation, triggerSupportOnLoadForSlot, type EffectContext } from './effects'
 import { canDropEnergyInSlot } from './gameData'
 import { sum } from './numbers'
 
@@ -445,7 +445,10 @@ function evaluateSolution(
   for (const action of actions) {
     if (action.kind === 'activation') {
       const result = triggerActivation(action.unit, hand)
-      if (result !== null) hand = result
+      if (result !== null) {
+        energyGeneratedCount += computeActivationEnergyGenerated(hand, result)
+        hand = result
+      }
     } else {
       const { placement: p } = action
       placements.push(p)

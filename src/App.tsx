@@ -28,8 +28,8 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type Placement, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
-import { IMPLEMENTED_SKILLS, formatEffect, triggerActivation, triggerSupportOnLoadForSlot } from './lib/effects'
+import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
+import { IMPLEMENTED_SKILLS, computeActivationEnergyGenerated, formatEffect, triggerActivation, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
   Energy,
@@ -323,11 +323,7 @@ function App() {
     markInputChanged()
 
     if (newEnergies !== null) {
-      const generatedValue = Math.max(
-        0,
-        newEnergies.reduce((total, energy) => total + energy.point, 0) -
-          energies.reduce((total, energy) => total + energy.point, 0),
-      )
+      const generatedValue = computeActivationEnergyGenerated(energies, newEnergies)
       setActivationEnergyGenerated((current) => current + generatedValue)
       setEnergies(newEnergies)
     }
