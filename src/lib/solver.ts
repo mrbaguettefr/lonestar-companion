@@ -692,7 +692,7 @@ export function solveMultiple(
   lanes: Lane[],
   _laneSummaries: LaneSummary[],
   energies: Energy[],
-  max = 5,
+  max?: number,
 ): RankedSolution[] {
   const basePool: SearchCard[] = energies.map((e) => ({ color: e.color, point: e.point }))
   const totalHandCount = basePool.length
