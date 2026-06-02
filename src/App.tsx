@@ -28,7 +28,7 @@ import {
   maxLaneColumns,
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
-import { buildBattleContext, replayPlacements, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
+import { buildBattleContext, evaluateCurrentBoard, replayPlacements, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type Placement, type RankedSolution, type SolverStrategy } from './lib/solver'
 import { IMPLEMENTED_SKILLS, formatEffect, triggerActivation, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
@@ -84,6 +84,10 @@ function App() {
 
   const battleContext = useMemo(() => buildBattleContext(energies), [energies])
   const laneSummaries = useMemo(() => summarizeLanes(lanes, battleContext), [lanes, battleContext])
+  const currentEvaluation = useMemo(
+    () => evaluateCurrentBoard(lanes, laneSummaries),
+    [lanes, laneSummaries],
+  )
   const solution = useMemo(
     () => solveOptimal(lanes, laneSummaries, energies),
     [lanes, laneSummaries, energies],
@@ -638,68 +642,87 @@ function App() {
     setIsImportOpen(true)
   }
 
+  function restoreConfig(config: ConfigExport) {
+    if (config.version !== 1 && config.version !== 2) throw new Error('Unsupported version')
+    if (!Array.isArray(config.lanes)) throw new Error('Missing lanes')
+    if (!Array.isArray(config.energies)) throw new Error('Missing energies')
+
+    let restoredLanes: Lane[]
+
+    if (config.version === 2) {
+      restoredLanes = config.lanes.map((lane) => ({
+        goal: lane.goal,
+        cells: lane.cells.map((cell) => {
+          if (!cell) return null
+          const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+          if (!option) return null
+          return {
+            unitId: option.unitId,
+            level: option.level,
+            name: option.name,
+            skillPath: option.skillPath,
+            unitType: option.unitType,
+            staticPower: option.staticPower,
+            overclockThresholds: option.overclockThresholds,
+            maxActivations: option.maxActivations,
+            slots: option.slots,
+            effect: option.effect,
+            args: option.args,
+            loadedEnergy: cell.loadedEnergy,
+            manualPowerOverride: cell.manualPowerOverride,
+            activateCount: cell.activateCount ?? 0,
+          } satisfies LaneUnit
+        }),
+      }))
+    } else {
+      // v1: full LaneUnit — patch any missing fields added after initial release
+      restoredLanes = config.lanes.map((lane) => ({
+        ...lane,
+        cells: lane.cells.map((cell) => {
+          if (!cell) return cell
+          const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null
+          if (!needsPatch) return cell
+          const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
+          return {
+            ...cell,
+            overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
+            maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
+            activateCount: cell.activateCount ?? 0,
+          }
+        }),
+      }))
+    }
+
+    markInputChanged()
+    setSelectedShipId(config.shipId ?? '')
+    setLanes(restoredLanes)
+    setEnergies(config.energies)
+    setImportError(null)
+  }
+
   function applyImport() {
     try {
-      const config = JSON.parse(importText) as ConfigExport
-      if (config.version !== 1 && config.version !== 2) throw new Error('Unsupported version')
-      if (!Array.isArray(config.lanes)) throw new Error('Missing lanes')
-      if (!Array.isArray(config.energies)) throw new Error('Missing energies')
-
-      let restoredLanes: Lane[]
-
-      if (config.version === 2) {
-        restoredLanes = config.lanes.map((lane) => ({
-          goal: lane.goal,
-          cells: lane.cells.map((cell) => {
-            if (!cell) return null
-            const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
-            if (!option) return null
-            return {
-              unitId: option.unitId,
-              level: option.level,
-              name: option.name,
-              skillPath: option.skillPath,
-              unitType: option.unitType,
-              staticPower: option.staticPower,
-              overclockThresholds: option.overclockThresholds,
-              maxActivations: option.maxActivations,
-              slots: option.slots,
-              effect: option.effect,
-              args: option.args,
-              loadedEnergy: cell.loadedEnergy,
-              manualPowerOverride: cell.manualPowerOverride,
-              activateCount: cell.activateCount ?? 0,
-            } satisfies LaneUnit
-          }),
-        }))
-      } else {
-        // v1: full LaneUnit — patch any missing fields added after initial release
-        restoredLanes = config.lanes.map((lane) => ({
-          ...lane,
-          cells: lane.cells.map((cell) => {
-            if (!cell) return cell
-            const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null
-            if (!needsPatch) return cell
-            const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
-            return {
-              ...cell,
-              overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
-              maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
-              activateCount: cell.activateCount ?? 0,
-            }
-          }),
-        }))
-      }
-
-      markInputChanged()
-      setSelectedShipId(config.shipId ?? '')
-      setLanes(restoredLanes)
-      setEnergies(config.energies)
+      restoreConfig(JSON.parse(importText) as ConfigExport)
       setIsImportOpen(false)
-      setImportError(null)
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Invalid JSON')
     }
+  }
+
+  function fastImportBleachingTapPair() {
+    fetch('/configs/bleaching-tap-pair.json')
+      .then((response) => {
+        if (!response.ok) throw new Error(`Unable to load config: ${response.status}`)
+        return response.json() as Promise<ConfigExport>
+      })
+      .then((config) => {
+        restoreConfig(config)
+        setIsImportOpen(false)
+      })
+      .catch((err) => {
+        setImportError(err instanceof Error ? err.message : 'Unable to load config')
+        setIsImportOpen(true)
+      })
   }
 
   // ── Dialog computed values ──────────────────────────────────────────────
@@ -736,8 +759,10 @@ function App() {
         copyFeedback={copyFeedback}
         onExport={exportToClipboard}
         onImport={openImportDialog}
+        onFastImport={fastImportBleachingTapPair}
         canUndo={undoStack.length > 0}
         canRedo={redoStack.length > 0}
+        canFastImport={dataStatus === 'ready'}
         onUndo={undo}
         onRedo={redo}
       />
@@ -772,6 +797,7 @@ function App() {
           <LaneSection
             lanes={lanes}
             laneSummaries={laneSummaries}
+            currentEvaluation={currentEvaluation}
             selectedShipName={selectedShip.name}
             unitOptions={selectedUnitOptions}
             onClearCell={clearCell}

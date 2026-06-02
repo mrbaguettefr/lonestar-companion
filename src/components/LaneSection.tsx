@@ -1,12 +1,14 @@
 import { type DragEvent, useState } from 'react'
 import { getLaneName, canDropEnergyInSlot } from '../lib/gameData'
 import { formatEffect } from '../lib/effects'
+import { solutionScore, type RankedSolution } from '../lib/solver'
 import type { DragPayload, Lane, LaneSummary, LaneUnit, UnitOption, UnitStrengthBreakdown, LoadedEnergy } from '../types/lonestar'
 import { Button } from './ui/button'
 
 type LaneSectionProps = {
   lanes: Lane[]
   laneSummaries: LaneSummary[]
+  currentEvaluation: RankedSolution
   selectedShipName: string
   unitOptions: UnitOption[]
   onClearCell: (laneIndex: number, cellIndex: number) => void
@@ -66,6 +68,7 @@ function parseDragPayload(data: string): DragPayload | null {
 export function LaneSection({
   lanes,
   laneSummaries,
+  currentEvaluation,
   selectedShipName,
   unitOptions,
   onClearCell,
@@ -285,6 +288,20 @@ export function LaneSection({
             </article>
           )
         })}
+      </div>
+      <div className="lane-current-eval solution-stats" aria-live="polite">
+        <span>Current</span>
+        <span>Score: {solutionScore(currentEvaluation).toFixed(1)}</span>
+        <span>Energy used: {currentEvaluation.stats.energiesUsed}</span>
+        <span>Energy consumed: {currentEvaluation.stats.energyConsumed} pts</span>
+        <span>Strength: {currentEvaluation.stats.strengthGenerated}</span>
+        <span>Surplus: +{currentEvaluation.stats.damageDealt}</span>
+        <span>Generated: +{currentEvaluation.stats.energyGenerated}</span>
+        {currentEvaluation.stats.damageReceived > 0 && (
+          <span className="solution-stat--warn">
+            Short: {currentEvaluation.stats.damageReceived}
+          </span>
+        )}
       </div>
     </section>
   )

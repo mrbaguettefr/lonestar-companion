@@ -8,8 +8,10 @@ type AppHeaderProps = {
   canRedo: boolean
   onExport: () => void
   onImport: () => void
+  onFastImport: () => void
   onUndo: () => void
   onRedo: () => void
+  canFastImport: boolean
 }
 
 export function AppHeader({
@@ -20,8 +22,10 @@ export function AppHeader({
   canRedo,
   onExport,
   onImport,
+  onFastImport,
   onUndo,
   onRedo,
+  canFastImport,
 }: AppHeaderProps) {
   const statusClass = hasSolved ? (isPossible ? 'status ready' : 'status blocked') : 'status idle'
   const statusLabel = hasSolved ? (isPossible ? 'Possible' : 'Not enough energy') : 'Ready to solve'
@@ -55,6 +59,16 @@ export function AppHeader({
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={onImport}>
           Import
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onFastImport}
+          disabled={!canFastImport}
+          title="Load public/configs/bleaching-tap-pair.json"
+        >
+          Bleaching Tap Pair
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={onExport}>
           {copyFeedback ? 'Copied!' : 'Export'}

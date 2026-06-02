@@ -168,6 +168,75 @@ export type PlacementReplayStep = {
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
+function collectLoadedPlacements(lanes: Lane[]): Placement[] {
+  return lanes.flatMap((lane, laneIndex) =>
+    lane.cells.flatMap((cell, cellIndex) =>
+      cell
+        ? cell.loadedEnergy.flatMap((energy, slotIndex) =>
+            energy ? [{
+              laneIndex,
+              cellIndex,
+              slotIndex,
+              color: energy.color,
+              point: energy.point,
+            }] : [],
+          )
+        : [],
+    ),
+  )
+}
+
+function countGeneratedEnergiesInCurrentBoard(lanes: Lane[]): number {
+  return lanes.reduce((total, lane) => total + lane.cells.reduce((laneTotal, cell) => {
+    if (!cell || cell.unitType !== 'support') return laneTotal
+
+    let generatedCount = 0
+    const replayUnit: LaneUnit = {
+      ...cell,
+      loadedEnergy: Array(cell.slots.length).fill(null),
+    }
+
+    cell.loadedEnergy.forEach((energy, slotIndex) => {
+      if (!energy) return
+      const generated = triggerSupportOnLoadForSlot(replayUnit, slotIndex, energy)
+      generatedCount += generated.length
+      replayUnit.loadedEnergy[slotIndex] = energy
+    })
+
+    return laneTotal + generatedCount
+  }, 0), 0)
+}
+
+export function evaluateCurrentBoard(
+  lanes: Lane[],
+  laneSummaries: LaneSummary[],
+): RankedSolution {
+  const placements = collectLoadedPlacements(lanes)
+  const strengthGenerated = sum(laneSummaries.map((s) => s.strength))
+  const damageDealt = sum(laneSummaries.map((s) => s.surplus))
+  const damageReceived = sum(laneSummaries.map((s) => s.deficit))
+  const energyConsumed = sum(placements.map((p) => p.point))
+  const energiesUsed = placements.length
+  const stats: SolutionStats = {
+    energiesUsed,
+    energyConsumed,
+    strengthGenerated,
+    damageDealt,
+    damageReceived,
+    efficiencyRatio: strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0,
+    energyGenerated: countGeneratedEnergiesInCurrentBoard(lanes),
+  }
+
+  return {
+    placements,
+    possible: damageReceived === 0,
+    totalEnergyUsed: energiesUsed,
+    remainingDeficit: damageReceived,
+    spareEnergy: 0,
+    stats,
+  }
+}
+
 function addEnergyToHand(energies: Energy[], loaded: LoadedEnergy, idSeed: number): Energy[] {
   const existing = energies.find((e) => e.color === loaded.color && e.point === loaded.point)
   if (existing) {

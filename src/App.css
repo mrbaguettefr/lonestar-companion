@@ -128,6 +128,17 @@
   gap: 12px;
 }
 
+.lane-current-eval {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.lane-current-eval > span:first-child {
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
 .lane-card,
 .lane-row-card {
   border: 1px solid var(--border);

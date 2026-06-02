@@ -1,0 +1,113 @@
+{
+  "version": 2,
+  "shipId": "7",
+  "lanes": [
+    {
+      "goal": 0,
+      "cells": [
+        {
+          "unitId": 11801,
+          "level": 1,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        },
+        {
+          "unitId": 11001,
+          "level": 2,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        },
+        null
+      ]
+    },
+    {
+      "goal": 15,
+      "cells": [
+        {
+          "unitId": 11002,
+          "level": 2,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        },
+        {
+          "unitId": 12803,
+          "level": 1,
+          "loadedEnergy": [],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        },
+        {
+          "unitId": 13001,
+          "level": 1,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        }
+      ]
+    },
+    {
+      "goal": 0,
+      "cells": [
+        {
+          "unitId": 11828,
+          "level": 1,
+          "loadedEnergy": [],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        },
+        {
+          "unitId": 14001,
+          "level": 1,
+          "loadedEnergy": [
+            null,
+            null
+          ],
+          "manualPowerOverride": null,
+          "activateCount": 0
+        },
+        null
+      ]
+    }
+  ],
+  "energies": [
+    {
+      "id": 1,
+      "color": "white",
+      "count": 1,
+      "point": 3
+    },
+    {
+      "id": 2,
+      "color": "blue",
+      "count": 2,
+      "point": 2
+    },
+    {
+      "id": 1780411761010.7068,
+      "color": "white",
+      "point": 4,
+      "count": 1
+    },
+    {
+      "id": 1780411769522,
+      "color": "orange",
+      "point": 1,
+      "count": 1
+    }
+  ]
+}
