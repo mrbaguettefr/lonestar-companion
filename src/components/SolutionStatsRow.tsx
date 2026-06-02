@@ -13,7 +13,7 @@ function formatSigned(value: number): string {
 }
 
 function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+  return value.toFixed(1)
 }
 
 function netStatClass(value: number): string | undefined {

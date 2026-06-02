@@ -30,7 +30,7 @@ export function SolutionPanel({
   onSolve,
   onLoadSolution,
 }: SolutionPanelProps) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
+  const [expandedIndexes, setExpandedIndexes] = useState<number[]>([])
   const [showImpossible, setShowImpossible] = useState(false)
 
   return (
@@ -68,7 +68,7 @@ export function SolutionPanel({
             {sortByStrategy(solvedResults, solverStrategy).filter((r) => showImpossible || r.possible).map((result, displayIdx) => {
               const idx = solvedResults.indexOf(result)
               const isLoaded = idx === loadedSolutionIdx
-              const isExpanded = expandedIdx === idx
+              const isExpanded = expandedIndexes.includes(idx)
               const laneIndices = [...new Set(result.placements.map((p) => p.laneIndex))]
 
               const steps =
@@ -97,7 +97,11 @@ export function SolutionPanel({
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                        onClick={() =>
+                          setExpandedIndexes((current) =>
+                            isExpanded ? current.filter((openIdx) => openIdx !== idx) : [...current, idx],
+                          )
+                        }
                       >
                         {isExpanded ? 'Hide steps' : 'Show steps'}
                       </Button>
