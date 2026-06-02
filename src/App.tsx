@@ -29,7 +29,7 @@ import {
 } from './lib/gameData'
 import { clampNumber } from './lib/numbers'
 import { buildBattleContext, evaluateCurrentBoard, replayActions, solveMultiple, solveOptimal, sortByStrategy, summarizeLanes, type RankedSolution, type SolverAction, type SolverStrategy } from './lib/solver'
-import { IMPLEMENTED_SKILLS, applyActivationEffect, formatEffect, triggerSupportOnLoadForSlot } from './lib/effects'
+import { IMPLEMENTED_SKILLS, applyActivationEffect, effectiveStaticPower, formatEffect, triggerSupportOnLoadForSlot } from './lib/effects'
 import type {
   DragPayload,
   Energy,
@@ -38,6 +38,7 @@ import type {
   LoadedEnergy,
   LonestarData,
   PlayerShip,
+  UnitModId,
   UnitOption,
 } from './types/lonestar'
 
@@ -52,11 +53,16 @@ type ExportedCell = {
   loadedEnergy: (LoadedEnergy | null)[]
   manualPowerOverride: number | null
   activateCount: number
+  mods?: UnitModId[]
 } | null
 
 type ConfigExport =
   | { version: 1; shipId: string; lanes: Lane[]; energies: Energy[] }
   | { version: 2; shipId: string; lanes: Array<{ cells: ExportedCell[]; goal: number }>; energies: Energy[] }
+
+const unitModOptions = [
+  { id: 'power-plus-1', label: 'Power +1' },
+] satisfies Array<{ id: UnitModId; label: string }>
 
 function createHandEnergy(color: string, point: number): Energy {
   return { id: Date.now() + Math.random(), color, point }
@@ -80,6 +86,8 @@ function App() {
   const [draftUnitId, setDraftUnitId] = useState('')
   const [draftLoadedEnergy, setDraftLoadedEnergy] = useState<(LoadedEnergy | null)[]>([])
   const [draftManualOverride, setDraftManualOverride] = useState<number | null>(null)
+  const [draftMods, setDraftMods] = useState<UnitModId[]>([])
+  const [draftModToAdd, setDraftModToAdd] = useState<UnitModId>('power-plus-1')
   const [dataStatus, setDataStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [importError, setImportError] = useState<string | null>(null)
   const [isImportOpen, setIsImportOpen] = useState(false)
@@ -176,13 +184,15 @@ function App() {
     if (unitOptions.length === 0) return
     setLanes((prev) => {
       const needsMigration = prev.some((lane) =>
-        lane.cells.some((cell) => cell && (cell.overclockThresholds == null || cell.maxActivations == null)),
+        lane.cells.some(
+          (cell) => cell && (cell.overclockThresholds == null || cell.maxActivations == null || cell.mods == null),
+        ),
       )
       if (!needsMigration) return prev
       return prev.map((lane) => ({
         ...lane,
         cells: lane.cells.map((cell) => {
-          if (!cell || (cell.overclockThresholds != null && cell.maxActivations != null)) return cell
+          if (!cell || (cell.overclockThresholds != null && cell.maxActivations != null && cell.mods != null)) return cell
           const option = unitOptions.find(
             (o) => o.unitId === cell.unitId && o.level === cell.level,
           )
@@ -191,6 +201,7 @@ function App() {
             overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
             maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
             activateCount: cell.activateCount ?? 0,
+            mods: cell.mods ?? [],
           }
         }),
       }))
@@ -268,10 +279,12 @@ function App() {
     if (existing) {
       setDraftLoadedEnergy([...existing.loadedEnergy])
       setDraftManualOverride(existing.manualPowerOverride)
+      setDraftMods(existing.mods ?? [])
     } else {
       const unit = selectedUnitOptions.find((o) => o.key === defaultUnitKey)
       setDraftLoadedEnergy(Array(unit?.slots.length ?? 0).fill(null))
       setDraftManualOverride(null)
+      setDraftMods([])
     }
   }
 
@@ -280,6 +293,7 @@ function App() {
     const unit = selectedUnitOptions.find((o) => o.key === newKey)
     setDraftLoadedEnergy(Array(unit?.slots.length ?? 0).fill(null))
     setDraftManualOverride(null)
+    setDraftMods([])
   }
 
   function saveCell() {
@@ -310,6 +324,7 @@ function App() {
                       manualPowerOverride: draftManualOverride,
                       effect: unit.effect,
                       args: unit.args,
+                      mods: draftMods,
                     } satisfies LaneUnit)
                   : cell,
               ),
@@ -647,6 +662,7 @@ function App() {
                 loadedEnergy: cell.loadedEnergy,
                 manualPowerOverride: cell.manualPowerOverride,
                 activateCount: cell.activateCount,
+                mods: cell.mods ?? [],
               }
             : null,
         ),
@@ -695,6 +711,7 @@ function App() {
             loadedEnergy: cell.loadedEnergy,
             manualPowerOverride: cell.manualPowerOverride,
             activateCount: cell.activateCount ?? 0,
+            mods: cell.mods ?? [],
           } satisfies LaneUnit
         }),
       }))
@@ -704,7 +721,7 @@ function App() {
         ...lane,
         cells: lane.cells.map((cell) => {
           if (!cell) return cell
-          const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null
+          const needsPatch = cell.overclockThresholds == null || cell.maxActivations == null || cell.mods == null
           if (!needsPatch) return cell
           const option = unitOptions.find((o) => o.unitId === cell.unitId && o.level === cell.level)
           return {
@@ -712,6 +729,7 @@ function App() {
             overclockThresholds: cell.overclockThresholds ?? option?.overclockThresholds ?? [],
             maxActivations: cell.maxActivations ?? option?.maxActivations ?? 0,
             activateCount: cell.activateCount ?? 0,
+            mods: cell.mods ?? [],
           }
         }),
       }))
@@ -772,6 +790,7 @@ function App() {
         manualPowerOverride: draftManualOverride,
         effect: draftUnit.effect,
         args: draftUnit.args,
+        mods: draftMods,
       }
     : null
 
@@ -918,6 +937,55 @@ function App() {
               </p>
             )}
 
+            {draftUnit && (
+              <div className="grid gap-2">
+                <Label htmlFor="unit-mod">Mods</Label>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="unit-mod"
+                    value={draftModToAdd}
+                    onChange={(event) => setDraftModToAdd(event.target.value as UnitModId)}
+                  >
+                    {unitModOptions.map((mod) => (
+                      <option key={mod.id} value={mod.id}>
+                        {mod.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={draftMods.includes(draftModToAdd)}
+                    onClick={() => setDraftMods((current) => [...current, draftModToAdd])}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {draftMods.length > 0 && (
+                  <ul className="grid gap-1 text-sm">
+                    {draftMods.map((modId) => {
+                      const mod = unitModOptions.find((option) => option.id === modId)
+                      return (
+                        <li key={modId} className="flex items-center justify-between gap-2">
+                          <span>{mod?.label ?? modId}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setDraftMods((current) => current.filter((currentMod) => currentMod !== modId))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {draftUnit && draftUnit.slots.length > 0 && (
               <div className="grid gap-2">
                 <Label>Energy slots</Label>
@@ -974,10 +1042,10 @@ function App() {
                     ? draftManualOverride
                     : draftLoadedEnergy
                         .filter((e): e is LoadedEnergy => e !== null)
-                        .reduce((acc, e) => acc + e.point, 0) + draftLaneUnit.staticPower}
+                        .reduce((acc, e) => acc + e.point, 0) + effectiveStaticPower(draftLaneUnit)}
                 </strong>
-                {draftUnit.staticPower > 0 && (
-                  <span className="text-muted-foreground ml-1">(+{draftUnit.staticPower} PA)</span>
+                {effectiveStaticPower(draftLaneUnit) > 0 && (
+                  <span className="text-muted-foreground ml-1">(+{effectiveStaticPower(draftLaneUnit)} PA)</span>
                 )}
               </div>
             )}
@@ -1095,6 +1163,7 @@ function createShipLanes(ship: PlayerShip, unitOptions: UnitOption[]) {
       manualPowerOverride: null,
       effect: option.effect,
       args: option.args,
+      mods: [],
     }
   }
 

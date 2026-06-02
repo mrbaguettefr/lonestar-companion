@@ -1,6 +1,17 @@
 import type { Energy, LaneUnit, LoadedEnergy, UnitStrengthBreakdown } from '../types/lonestar'
 import { sum } from './numbers'
 
+export function unitModPowerBonus(unit: LaneUnit): number {
+  return (unit.mods ?? []).reduce(
+    (total, modId) => total + (modId === 'power-plus-1' ? 1 : 0),
+    0,
+  )
+}
+
+export function effectiveStaticPower(unit: LaneUnit): number {
+  return unit.staticPower + unitModPowerBonus(unit)
+}
+
 export interface EffectContext {
   lane: Array<LaneUnit | null>
   laneIndex: number
@@ -214,7 +225,7 @@ const Skill_SelfLoadPointUp: SkillHandler = (unit, loaded) => {
 const Skill_LoadLoseAddedButNine: SkillHandler = (unit, loaded) => {
   const targetPt = unit.args[1] ?? 9
   const base = sum(loadedPoints(loaded))
-  const bonus = loaded.length * targetPt - base - unit.staticPower
+  const bonus = loaded.length * targetPt - base - effectiveStaticPower(unit)
   return { effectBonus: bonus, isDoubled: false, effectLabel: `pts→${targetPt}` }
 }
 
@@ -232,8 +243,9 @@ const Skill_OneOrPupleCannon: SkillHandler = (unit, loaded) => {
 
 // Doubles the PA (staticPower). Since staticPower is applied separately, add it again as bonus.
 const Skill_AddedDouble: SkillHandler = (unit, loaded) => {
-  if (loaded.length === 0 || unit.staticPower === 0) return noEffect()
-  return { effectBonus: unit.staticPower, isDoubled: false, effectLabel: `+${unit.staticPower} (PA doubled)` }
+  const staticPower = effectiveStaticPower(unit)
+  if (loaded.length === 0 || staticPower === 0) return noEffect()
+  return { effectBonus: staticPower, isDoubled: false, effectLabel: `+${staticPower} (PA doubled)` }
 }
 
 // "When adding Strength, add {0} more" — triggers only when energy is loaded
@@ -501,7 +513,7 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
 
   const loaded = unit.loadedEnergy.filter((e): e is LoadedEnergy => e !== null)
   const basePoints = sum(loaded.map((e) => e.point))
-  const staticPower = unit.staticPower
+  const staticPower = effectiveStaticPower(unit)
 
   // Support units contribute 0 computed strength
   if (unit.unitType === 'support') {
@@ -861,7 +873,7 @@ export function computeSupportPassiveBonus(
       if (!isBehind || loadedCount === 0) return 0
       const behindUnit = targetLane[targetCellIndex]
       if (!behindUnit) return 0
-      return behindUnit.staticPower + (args[0] ?? 0)
+      return effectiveStaticPower(behindUnit) + (args[0] ?? 0)
     }
 
     // Adjacent Attack Units have Double Strength while not loaded (Ring of Strength) — 4 directions
@@ -870,7 +882,7 @@ export function computeSupportPassiveBonus(
       const targetUnit = targetLane[targetCellIndex]
       if (!targetUnit) return 0
       const targetUnloaded = targetUnit.loadedEnergy.filter(Boolean).length === 0
-      return targetUnloaded ? targetUnit.staticPower : 0
+      return targetUnloaded ? effectiveStaticPower(targetUnit) : 0
     }
 
     default:

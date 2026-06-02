@@ -3,6 +3,8 @@ export type LoadedEnergy = {
   point: number
 }
 
+export type UnitModId = 'power-plus-1'
+
 export type DragPayload =
   | { type: 'unit'; laneIndex: number; cellIndex: number }
   | { type: 'energy-hand'; energyId: number; color: string; point: number }
@@ -44,6 +46,7 @@ export type LaneUnit = {
   manualPowerOverride: number | null
   effect: string
   args: number[]
+  mods: UnitModId[]
 }
 
 export type Energy = {
