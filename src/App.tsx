@@ -173,7 +173,7 @@ function App() {
   useEffect(() => {
     let isMounted = true
 
-    fetch('/lonestar_data.json')
+    fetch(`${import.meta.env.BASE_URL}lonestar_data.json`)
       .then((response) => {
         if (!response.ok) throw new Error(`Unable to load lonestar_data.json: ${response.status}`)
         return response.json() as Promise<LonestarData>
@@ -832,7 +832,7 @@ function App() {
   }
 
   function fastImportConfig(filename: string) {
-    fetch(`/configs/${filename}`)
+    fetch(`${import.meta.env.BASE_URL}configs/${filename}`)
       .then((response) => {
         if (!response.ok) throw new Error(`Unable to load config: ${response.status}`)
         return response.json() as Promise<ConfigExport>
