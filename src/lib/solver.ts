@@ -350,12 +350,12 @@ function searchGlobal(
 /**
  * Composite score for the "best" strategy.
  * - Goals not met → 0
- * - Weights: strength/card ratio ×2, energy generated ×1, surplus penalty ×0.5
+ * - Weights: strength/card ratio ×2, energy generated ×1, surplus penalty ×0.75
  */
 export function solutionScore(s: RankedSolution): number {
   if (!s.possible) return 0
   const ratio = s.stats.energiesUsed > 0 ? s.stats.strengthGenerated / s.stats.energiesUsed : 0
-  return ratio * 2 + s.stats.energyGenerated * 1 - s.stats.damageDealt * 0.5
+  return ratio * 2 + s.stats.energyGenerated * 1 - s.stats.damageDealt * 0.75
 }
 
 export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStrategy): RankedSolution[] {
@@ -390,7 +390,7 @@ function rankSolutions(
   rawSolutions: Placement[][],
   lanes: Lane[],
   totalHandCount: number,
-  max: number,
+  max?: number,
 ): RankedSolution[] {
   // Convert and deduplicate
   const seen = new Set<string>()
@@ -418,7 +418,7 @@ function rankSolutions(
     return b.stats.strengthGenerated - a.stats.strengthGenerated
   })
 
-  return ranked.slice(0, max)
+  return max == null ? ranked : ranked.slice(0, max)
 }
 
 /** Collect all activatable units (not yet activated) that have auto-applicable effects. */
@@ -451,7 +451,7 @@ export function solveMultiple(
   lanes: Lane[],
   _laneSummaries: LaneSummary[],
   energies: Energy[],
-  max = 5,
+  max?: number,
 ): RankedSolution[] {
   const basePool: SearchCard[] = energies.flatMap((e) =>
     Array<SearchCard>(e.count).fill({ color: e.color, point: e.point }),

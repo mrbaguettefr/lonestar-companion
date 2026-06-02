@@ -779,6 +779,8 @@ function App() {
         unitType: draftUnit.unitType,
         staticPower: draftUnit.staticPower,
         overclockThresholds: draftUnit.overclockThresholds,
+        maxActivations: draftUnit.maxActivations,
+        activateCount: 0,
         slots: draftUnit.slots,
         loadedEnergy: draftLoadedEnergy,
         manualPowerOverride: draftManualOverride,

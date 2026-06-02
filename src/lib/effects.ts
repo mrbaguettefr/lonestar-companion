@@ -80,8 +80,20 @@ function formsStraight(points: number[]): boolean {
 export function formatEffect(template: string, args: number[], overclockThresholds: number[] = []): string {
   // OC thresholds fill {0},{1},… and args fill the remaining slots,
   // matching the in-game template convention where thresholds are displayed first.
-  const all = [...overclockThresholds, ...args]
+  const argsAlreadyIncludeThresholds =
+    overclockThresholds.length > 0 &&
+    overclockThresholds.every((threshold, index) => args[index] === threshold)
+  const all = argsAlreadyIncludeThresholds ? args : [...overclockThresholds, ...args]
   return template.replace(/\{(\d+)\}/g, (_, i) => String(all[Number(i)] ?? '?'))
+}
+
+function overclockBonusArg(unit: LaneUnit, bonusIndex: number): number {
+  const thresholds = unit.overclockThresholds ?? []
+  const argsAlreadyIncludeThresholds =
+    thresholds.length > 0 &&
+    thresholds.every((threshold, index) => unit.args[index] === threshold)
+  const offset = argsAlreadyIncludeThresholds ? thresholds.length : 0
+  return unit.args[offset + bonusIndex] ?? 0
 }
 
 function noEffect(): SkillResult {
@@ -394,12 +406,12 @@ const Skill_OverclockThreeCannon: SkillHandler = (unit, loaded) => {
   let bonus = 0
   const labels: string[] = []
   if (oc1 !== undefined && maxPt >= oc1) {
-    const b = unit.args[0] ?? 0
+    const b = overclockBonusArg(unit, 0)
     bonus += b
     labels.push(`OC(≥${oc1})+${b}`)
   }
   if (oc2 !== undefined && maxPt >= oc2) {
-    const b = unit.args[1] ?? 0
+    const b = overclockBonusArg(unit, 1)
     bonus += b
     labels.push(`OC(≥${oc2})+${b}`)
   }
@@ -413,7 +425,7 @@ const Skill_OverclockSingle: SkillHandler = (unit, loaded) => {
   if (threshold === undefined) return noEffect()
   const maxPt = Math.max(...loaded.map((e) => e.point))
   if (maxPt < threshold) return noEffect()
-  const bonus = unit.args[0] ?? 0
+  const bonus = overclockBonusArg(unit, 0)
   return { effectBonus: bonus, isDoubled: false, effectLabel: `+${bonus} (OC≥${threshold})` }
 }
 

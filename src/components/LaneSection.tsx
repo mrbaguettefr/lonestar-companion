@@ -158,7 +158,7 @@ export function LaneSection({
                               <p>{formatEffect(cell.effect, cell.args, cell.overclockThresholds)}</p>
                             )}
                             <span className="tooltip-formula">
-                              {breakdown ? buildStrengthFormula(cell, breakdown) : `${breakdown?.total ?? 0}`}
+                              {buildStrengthFormula(cell, breakdown)}
                             </span>
                           </div>
                           <button
