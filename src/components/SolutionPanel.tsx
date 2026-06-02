@@ -76,7 +76,7 @@ export function SolutionPanel({
                   ? computeSolutionSteps(
                       presolvedLanes,
                       result.actions,
-                      result.totalEnergyUsed + result.spareEnergy,
+                      result.totalEnergyUsedCount + result.spareEnergyCount,
                       presolvedEnergies ?? [],
                     )
                   : null

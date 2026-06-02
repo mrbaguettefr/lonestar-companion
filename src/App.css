@@ -740,6 +740,16 @@ select:focus {
   font-weight: 600;
 }
 
+.solution-stat--positive {
+  color: #18734d;
+  font-weight: 600;
+}
+
+.solution-stat--negative {
+  color: #a64031;
+  font-weight: 600;
+}
+
 .solution-placements {
   list-style: none;
   padding: 0;

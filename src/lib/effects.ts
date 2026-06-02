@@ -770,7 +770,7 @@ export function triggerActivation(unit: LaneUnit, energies: Energy[]): Energy[] 
   }
 }
 
-export function computeActivationEnergyGenerated(before: Energy[], after: Energy[]): number {
+export function computeActivationEnergyPointsGenerated(before: Energy[], after: Energy[]): number {
   const beforePoints = sum(before.map((energy) => energy.point))
   const afterPoints = sum(after.map((energy) => energy.point))
   return Math.max(0, afterPoints - beforePoints)
@@ -779,14 +779,14 @@ export function computeActivationEnergyGenerated(before: Energy[], after: Energy
 export function applyActivationEffect(
   unit: LaneUnit,
   energies: Energy[],
-): { energies: Energy[]; energyGenerated: number; energiesGenerated: number } | null {
+): { energies: Energy[]; energyPointsGenerated: number; energyGeneratedCount: number } | null {
   const nextEnergies = triggerActivation(unit, energies)
   if (nextEnergies === null) return null
 
   return {
     energies: nextEnergies,
-    energyGenerated: computeActivationEnergyGenerated(energies, nextEnergies),
-    energiesGenerated: Math.max(0, nextEnergies.length - energies.length),
+    energyPointsGenerated: computeActivationEnergyPointsGenerated(energies, nextEnergies),
+    energyGeneratedCount: Math.max(0, nextEnergies.length - energies.length),
   }
 }
 

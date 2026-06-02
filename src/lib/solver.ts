@@ -128,21 +128,23 @@ export type Placement = {
 export type OptimalSolution = {
   possible: boolean
   placements: Placement[]
-  totalEnergyUsed: number
+  totalEnergyUsedCount: number
   remainingDeficit: number
-  spareEnergy: number
+  spareEnergyCount: number
 }
 
 export type SolutionStats = {
-  energiesUsed: number
-  energiesGenerated: number
-  energyConsumed: number
+  energyUsedCount: number
+  energyGeneratedCount: number
+  energyPointsUsed: number
   strengthGenerated: number
   damageDealt: number
   damageReceived: number
   efficiencyRatio: number
-  energyGenerated: number
+  energyPointsGenerated: number
   stepCount: number
+  handEnergyCount: number
+  handEnergyPointTotal: number
 }
 
 /** A single action in an ordered solution: either an energy placement or a unit activation. */
@@ -156,9 +158,9 @@ export type RankedSolution = {
   /** Derived subset of actions that are placements, for convenience. */
   placements: Placement[]
   possible: boolean
-  totalEnergyUsed: number
+  totalEnergyUsedCount: number
   remainingDeficit: number
-  spareEnergy: number
+  spareEnergyCount: number
   stats: SolutionStats
 }
 
@@ -236,35 +238,38 @@ function countActivatedUnits(lanes: Lane[]): number {
 export function evaluateCurrentBoard(
   lanes: Lane[],
   laneSummaries: LaneSummary[],
-  bonusEnergyGenerated = 0,
-  bonusEnergiesGenerated = 0,
+  energies: Energy[],
+  bonusEnergyPointsGenerated = 0,
+  bonusEnergyGeneratedCount = 0,
 ): RankedSolution {
   const placements = collectLoadedPlacements(lanes)
   const generated = totalGeneratedEnergyInCurrentBoard(lanes)
   const strengthGenerated = sum(laneSummaries.map((s) => s.strength))
   const damageDealt = sum(laneSummaries.map((s) => s.surplus))
   const damageReceived = sum(laneSummaries.map((s) => s.deficit))
-  const energyConsumed = sum(placements.map((p) => p.point))
-  const energiesUsed = placements.length
+  const energyPointsUsed = sum(placements.map((p) => p.point))
+  const energyUsedCount = placements.length
   const stats: SolutionStats = {
-    energiesUsed,
-    energiesGenerated: generated.count + bonusEnergiesGenerated,
-    energyConsumed,
+    energyUsedCount,
+    energyGeneratedCount: generated.count + bonusEnergyGeneratedCount,
+    energyPointsUsed,
     strengthGenerated,
     damageDealt,
     damageReceived,
-    efficiencyRatio: strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0,
-    energyGenerated: generated.points + bonusEnergyGenerated,
-    stepCount: energiesUsed + countActivatedUnits(lanes),
+    efficiencyRatio: strengthGenerated > 0 ? energyUsedCount / strengthGenerated : 0,
+    energyPointsGenerated: generated.points + bonusEnergyPointsGenerated,
+    stepCount: energyUsedCount + countActivatedUnits(lanes),
+    handEnergyCount: energies.length,
+    handEnergyPointTotal: sum(energies.map((energy) => energy.point)),
   }
 
   return {
     actions: placements.map((p) => ({ kind: 'placement', placement: p })),
     placements,
     possible: damageReceived === 0,
-    totalEnergyUsed: energiesUsed,
+    totalEnergyUsedCount: energyUsedCount,
     remainingDeficit: damageReceived,
-    spareEnergy: 0,
+    spareEnergyCount: 0,
     stats,
   }
 }
@@ -341,22 +346,22 @@ export function replayActions(
   lanes: Lane[],
   initialEnergies: Energy[],
   actions: SolverAction[],
-): { lanes: Lane[]; energies: Energy[]; activationEnergyGenerated: number; activationEnergiesGenerated: number } {
+): { lanes: Lane[]; energies: Energy[]; activationEnergyPointsGenerated: number; activationEnergyGeneratedCount: number } {
   const simLanes: Lane[] = lanes.map((lane) => ({
     ...lane,
     cells: cloneLaneCells(lane.cells),
   }))
   let hand = initialEnergies.map((e) => ({ ...e }))
   let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id), 0) + 1
-  let activationEnergyGenerated = 0
-  let activationEnergiesGenerated = 0
+  let activationEnergyPointsGenerated = 0
+  let activationEnergyGeneratedCount = 0
 
   for (const action of actions) {
     if (action.kind === 'activation') {
       const result = applyActivationEffect(action.unit, hand)
       if (result !== null) {
-        activationEnergyGenerated += result.energyGenerated
-        activationEnergiesGenerated += result.energiesGenerated
+        activationEnergyPointsGenerated += result.energyPointsGenerated
+        activationEnergyGeneratedCount += result.energyGeneratedCount
         hand = result.energies
       }
 
@@ -381,7 +386,7 @@ export function replayActions(
     }
   }
 
-  return { lanes: simLanes, energies: hand, activationEnergyGenerated, activationEnergiesGenerated }
+  return { lanes: simLanes, energies: hand, activationEnergyPointsGenerated, activationEnergyGeneratedCount }
 }
 
 function loadedEnergyOutcomeKey(unit: LaneUnit): string {
@@ -448,14 +453,16 @@ function solutionOutcomeKey(
 
   return [
     stats.damageReceived === 0 ? 1 : 0,
-    stats.energiesUsed,
-    stats.energiesGenerated,
-    stats.energyConsumed,
+    stats.energyUsedCount,
+    stats.energyGeneratedCount,
+    stats.energyPointsUsed,
     stats.strengthGenerated,
     stats.damageDealt,
     stats.damageReceived,
-    stats.energyGenerated,
+    stats.energyPointsGenerated,
     stats.stepCount,
+    stats.handEnergyCount,
+    stats.handEnergyPointTotal,
     laneKeys.join('||'),
   ].join('#')
 }
@@ -471,16 +478,16 @@ function evaluateSolution(
   }))
   let hand = initialEnergies.map((e) => ({ ...e }))
   let nextGeneratedId = Math.max(0, ...hand.map((e) => e.id), 0) + 1
-  let energyGeneratedPoints = 0
-  let energiesGenerated = 0
+  let energyPointsGenerated = 0
+  let energyGeneratedCount = 0
   const placements: Placement[] = []
 
   for (const action of actions) {
     if (action.kind === 'activation') {
       const result = applyActivationEffect(action.unit, hand)
       if (result !== null) {
-        energyGeneratedPoints += result.energyGenerated
-        energiesGenerated += result.energiesGenerated
+        energyPointsGenerated += result.energyPointsGenerated
+        energyGeneratedCount += result.energyGeneratedCount
         hand = result.energies
       }
     } else {
@@ -496,8 +503,8 @@ function evaluateSolution(
         const generated = triggerSupportOnLoadForSlot(cell, p.slotIndex, loaded)
         for (const gen of generated) {
           hand = [...hand, { id: nextGeneratedId++, color: gen.color, point: gen.point }]
-          energiesGenerated++
-          energyGeneratedPoints += gen.point
+          energyGeneratedCount++
+          energyPointsGenerated += gen.point
         }
       }
     }
@@ -508,11 +515,12 @@ function evaluateSolution(
   const strengthGenerated = sum(summaries.map((s) => s.strength))
   const damageDealt = sum(summaries.map((s) => s.surplus))
   const damageReceived = sum(summaries.map((s) => s.deficit))
-  const energiesUsed = placements.length
-  const energyConsumed = sum(placements.map((p) => p.point))
-  const efficiencyRatio = strengthGenerated > 0 ? energiesUsed / strengthGenerated : 0
+  const energyUsedCount = placements.length
+  const energyPointsUsed = sum(placements.map((p) => p.point))
+  const efficiencyRatio = strengthGenerated > 0 ? energyUsedCount / strengthGenerated : 0
+  const handEnergyPointTotal = sum(hand.map((energy) => energy.point))
 
-  const stats: SolutionStats = { energiesUsed, energiesGenerated, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated: energyGeneratedPoints, stepCount: actions.length }
+  const stats: SolutionStats = { energyUsedCount, energyGeneratedCount, energyPointsUsed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyPointsGenerated: energyPointsGenerated, stepCount: actions.length, handEnergyCount: finalHandCount, handEnergyPointTotal }
   return { stats, outcomeKey: solutionOutcomeKey(simLanes, summaries, stats), finalHandCount }
 }
 
@@ -531,24 +539,26 @@ function toRanked(
     const damageDealt = sum(summaries.map((s) => s.surplus))
     const damageReceived = sum(summaries.map((s) => s.deficit))
     return {
-      energiesUsed: placements.length,
-      energiesGenerated: 0,
-      energyConsumed: sum(placements.map((p) => p.point)),
+      energyUsedCount: placements.length,
+      energyGeneratedCount: 0,
+      energyPointsUsed: sum(placements.map((p) => p.point)),
       strengthGenerated,
       damageDealt,
       damageReceived,
       efficiencyRatio: strengthGenerated > 0 ? placements.length / strengthGenerated : 0,
-      energyGenerated: 0,
+      energyPointsGenerated: 0,
       stepCount: actions.length,
+      handEnergyCount: fallbackFinalHandCount,
+      handEnergyPointTotal: 0,
     }
   })()
   return {
     actions,
     placements,
     possible: stats.damageReceived === 0,
-    totalEnergyUsed: placements.length,
+    totalEnergyUsedCount: placements.length,
     remainingDeficit: stats.damageReceived,
-    spareEnergy: finalHandCount ?? fallbackFinalHandCount,
+    spareEnergyCount: finalHandCount ?? fallbackFinalHandCount,
     stats,
   }
 }
@@ -712,8 +722,8 @@ function searchGlobal(
  */
 export function solutionScore(s: RankedSolution): number {
   if (!s.possible) return 0
-  const ratio = s.stats.energiesUsed > 0 ? s.stats.strengthGenerated / s.stats.energiesUsed : 0
-  return ratio * 2 + s.stats.energyGenerated * 1.5 - s.stats.damageDealt * 2 - s.stats.energyConsumed * 0.1
+  const ratio = s.stats.energyUsedCount > 0 ? s.stats.strengthGenerated / s.stats.energyUsedCount : 0
+  return ratio * 2 + s.stats.energyPointsGenerated * 1.5 - s.stats.damageDealt * 2 - s.stats.energyPointsUsed * 0.1
 }
 
 export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStrategy): RankedSolution[] {
@@ -723,10 +733,10 @@ export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStra
     if (strategy === 'best') {
       const scoreDelta = solutionScore(b) - solutionScore(a)
       if (scoreDelta !== 0) return scoreDelta
-      return a.stats.energyConsumed - b.stats.energyConsumed
+      return a.stats.energyPointsUsed - b.stats.energyPointsUsed
     }
     if (strategy === 'least-cards') {
-      if (a.totalEnergyUsed !== b.totalEnergyUsed) return a.totalEnergyUsed - b.totalEnergyUsed
+      if (a.totalEnergyUsedCount !== b.totalEnergyUsedCount) return a.totalEnergyUsedCount - b.totalEnergyUsedCount
       return b.stats.strengthGenerated - a.stats.strengthGenerated
     }
     if (strategy === 'efficiency') {
@@ -737,10 +747,10 @@ export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStra
     if (strategy === 'max-damage') {
       if (b.stats.strengthGenerated !== a.stats.strengthGenerated)
         return b.stats.strengthGenerated - a.stats.strengthGenerated
-      return a.totalEnergyUsed - b.totalEnergyUsed
+      return a.totalEnergyUsedCount - b.totalEnergyUsedCount
     }
-    if (b.stats.energyGenerated !== a.stats.energyGenerated)
-      return b.stats.energyGenerated - a.stats.energyGenerated
+    if (b.stats.energyPointsGenerated !== a.stats.energyPointsGenerated)
+      return b.stats.energyPointsGenerated - a.stats.energyPointsGenerated
     return b.stats.strengthGenerated - a.stats.strengthGenerated
   })
 }
@@ -780,7 +790,7 @@ function rankSolutions(
 
   ranked.sort((a, b) => {
     if (a.possible !== b.possible) return a.possible ? -1 : 1
-    if (a.totalEnergyUsed !== b.totalEnergyUsed) return a.totalEnergyUsed - b.totalEnergyUsed
+    if (a.totalEnergyUsedCount !== b.totalEnergyUsedCount) return a.totalEnergyUsedCount - b.totalEnergyUsedCount
     return b.stats.strengthGenerated - a.stats.strengthGenerated
   })
 
@@ -862,15 +872,15 @@ export function solveOptimal(
 ): OptimalSolution {
   const results = solveMultiple(lanes, laneSummaries, energies, 1)
   if (results.length === 0) {
-    return { possible: false, placements: [], totalEnergyUsed: 0, remainingDeficit: 0, spareEnergy: 0 }
+    return { possible: false, placements: [], totalEnergyUsedCount: 0, remainingDeficit: 0, spareEnergyCount: 0 }
   }
   const r = results[0]
   return {
     possible: r.possible,
     placements: r.placements,
-    totalEnergyUsed: r.totalEnergyUsed,
+    totalEnergyUsedCount: r.totalEnergyUsedCount,
     remainingDeficit: r.remainingDeficit,
-    spareEnergy: r.spareEnergy,
+    spareEnergyCount: r.spareEnergyCount,
   }
 }
 
