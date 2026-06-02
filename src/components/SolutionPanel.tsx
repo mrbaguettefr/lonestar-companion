@@ -15,7 +15,6 @@ type SolutionPanelProps = {
   presolvedEnergies: Energy[] | null
   onStrategyChange: (s: SolverStrategy) => void
   onSolve: () => void
-  onClear: () => void
   onLoadSolution: (idx: number) => void
 }
 
@@ -29,10 +28,10 @@ export function SolutionPanel({
   presolvedEnergies,
   onStrategyChange,
   onSolve,
-  onClear,
   onLoadSolution,
 }: SolutionPanelProps) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
+  const [showImpossible, setShowImpossible] = useState(false)
 
   return (
     <section className="solution-panel">
@@ -52,16 +51,21 @@ export function SolutionPanel({
           <Button className="min-h-13 text-lg" size="lg" type="button" onClick={onSolve}>
             Solve
           </Button>
-          <Button type="button" variant="outline" onClick={onClear}>
-            Clear energies
-          </Button>
+          <label className="solution-show-impossible">
+            <input
+              type="checkbox"
+              checked={showImpossible}
+              onChange={(e) => setShowImpossible(e.target.checked)}
+            />
+            Show unmet goals
+          </label>
         </div>
       </div>
 
       <div className="solution-copy" aria-live="polite">
         {hasSolved && solvedResults.length > 0 ? (
           <ol className="solution-list">
-            {sortByStrategy(solvedResults, solverStrategy).map((result, displayIdx) => {
+            {sortByStrategy(solvedResults, solverStrategy).filter((r) => showImpossible || r.possible).map((result, displayIdx) => {
               const idx = solvedResults.indexOf(result)
               const isLoaded = idx === loadedSolutionIdx
               const isExpanded = expandedIdx === idx

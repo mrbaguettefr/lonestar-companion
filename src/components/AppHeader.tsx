@@ -11,6 +11,7 @@ type AppHeaderProps = {
   onFastImport: () => void
   onUndo: () => void
   onRedo: () => void
+  onClear: () => void
   canFastImport: boolean
 }
 
@@ -25,6 +26,7 @@ export function AppHeader({
   onFastImport,
   onUndo,
   onRedo,
+  onClear,
   canFastImport,
 }: AppHeaderProps) {
   const statusClass = hasSolved ? (isPossible ? 'status ready' : 'status blocked') : 'status idle'
@@ -72,6 +74,9 @@ export function AppHeader({
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={onExport}>
           {copyFeedback ? 'Copied!' : 'Export'}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onClear}>
+          Clear energies
         </Button>
         <div className={statusClass}>{statusLabel}</div>
       </div>

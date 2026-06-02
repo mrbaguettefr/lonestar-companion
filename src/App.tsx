@@ -798,6 +798,7 @@ function App() {
         canFastImport={dataStatus === 'ready'}
         onUndo={undo}
         onRedo={redo}
+        onClear={clearEnergies}
       />
 
       <section className="ship-panel">
@@ -872,7 +873,6 @@ function App() {
               if (displayedFirst) applyPlacements(displayedFirst.placements, displayedFirst.activations)
               setHasSolved(true)
             }}
-            onClear={clearEnergies}
             onLoadSolution={loadSolution}
             presolvedLanes={presolvedLanes}
             presolvedEnergies={presolvedEnergies}
