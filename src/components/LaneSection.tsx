@@ -1,6 +1,7 @@
 import { type DragEvent, useState } from 'react'
 import { getLaneName, canDropEnergyInSlot } from '../lib/gameData'
-import type { DragPayload, Lane, LaneSummary, UnitOption } from '../types/lonestar'
+import { formatEffect } from '../lib/effects'
+import type { DragPayload, Lane, LaneSummary, LaneUnit, UnitOption, UnitStrengthBreakdown, LoadedEnergy } from '../types/lonestar'
 import { Button } from './ui/button'
 
 type LaneSectionProps = {
@@ -23,6 +24,31 @@ type LaneSectionProps = {
     toCell: number,
     toSlot: number,
   ) => void
+}
+
+function buildStrengthFormula(cell: LaneUnit, breakdown: UnitStrengthBreakdown): string {
+  if (breakdown.isManualOverride) return `Manual: ${breakdown.total}`
+  if (cell.unitType === 'support') return 'Support unit'
+
+  const energies = cell.loadedEnergy.filter((e): e is LoadedEnergy => e !== null)
+  const parts: string[] = energies.map(e => String(e.point))
+
+  if (breakdown.staticPower > 0) parts.push(`${breakdown.staticPower} (power)`)
+
+  if (breakdown.effectBonus !== 0) {
+    const label = breakdown.effectLabel
+      ? (breakdown.effectLabel.match(/\(([^)]+)\)/)?.[1] ?? 'effect')
+      : 'effect'
+    parts.push(`${breakdown.effectBonus} (${label})`)
+  }
+
+  if (parts.length === 0) return `0 = ${breakdown.total}`
+
+  const expr = breakdown.isDoubled
+    ? `(${parts.join(' + ')}) × 2`
+    : parts.join(' + ').replace(/\+ -(\d)/g, '- $1')
+
+  return `${expr} = ${breakdown.total}`
 }
 
 function parseDragPayload(data: string): DragPayload | null {
@@ -127,6 +153,14 @@ export function LaneSection({
                     >
                       {cell ? (
                         <>
+                          <div className="unit-tooltip" role="tooltip">
+                            {cell.effect && (
+                              <p>{formatEffect(cell.effect, cell.args, cell.overclockThresholds)}</p>
+                            )}
+                            <span className="tooltip-formula">
+                              {breakdown ? buildStrengthFormula(cell, breakdown) : `${breakdown?.total ?? 0}`}
+                            </span>
+                          </div>
                           <button
                             className="lane-cell-remove"
                             type="button"
@@ -210,16 +244,12 @@ export function LaneSection({
                               )
                             })}
                           </span>
-                          <strong>
-                            {breakdown?.isManualOverride ? 'Manual' : 'Strength'}{' '}
-                            {breakdown?.total ?? 0}
-                          </strong>
-                          {cell.staticPower > 0 && (
-                            <span className="unit-static-power">PA +{cell.staticPower}</span>
-                          )}
-                          {breakdown?.effectLabel && (
-                            <span className="unit-effect-label">{breakdown.effectLabel}</span>
-                          )}
+                          <div className="unit-badges">
+                            <span className="unit-badge">{breakdown?.total ?? 0}</span>
+                            {cell.staticPower > 0 && (
+                              <span className="unit-badge unit-badge--power">{cell.staticPower}</span>
+                            )}
+                          </div>
                         </>
                       ) : (
                         <span>Empty</span>

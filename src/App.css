@@ -318,6 +318,61 @@
   color: var(--text-strong);
 }
 
+.unit-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 10;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  translate: -50% 0;
+  width: 220px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  text-align: left;
+}
+
+.unit-tooltip p {
+  margin: 0 0 6px;
+}
+
+.tooltip-formula {
+  font-size: 11px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.lane-cell.filled:hover .unit-tooltip {
+  display: block;
+}
+
+.unit-badges {
+  display: flex;
+  gap: 4px;
+  justify-self: end;
+}
+
+.unit-badge {
+  display: inline-grid;
+  min-width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.unit-badge--power {
+  background: var(--primary, #4f8ef0);
+}
+
 .lane-cell-remove {
   position: absolute;
   top: -7px;
@@ -355,18 +410,6 @@
   overflow-wrap: anywhere;
   font-size: 14px;
   line-height: 1.2;
-}
-
-.lane-cell strong {
-  display: inline-grid;
-  min-width: 72px;
-  height: 28px;
-  place-items: center;
-  justify-self: end;
-  border-radius: 7px;
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 13px;
 }
 
 .unit-slots {
@@ -436,23 +479,6 @@
   text-shadow: none;
 }
 
-.unit-static-power {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary, #4f8ef0);
-  margin-top: 1px;
-}
-
-.unit-effect-label {
-  font-size: 11px;
-  color: var(--muted-foreground, #888);
-  font-style: italic;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
 
 .cell-actions {
   display: flex;
