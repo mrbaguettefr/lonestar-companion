@@ -432,6 +432,34 @@ function App() {
     )
   }
 
+  function reorderEnergyInHand(energyId: number, targetIndex: number) {
+    const fromIndex = energies.findIndex((energy) => energy.id === energyId)
+    if (fromIndex === -1) return
+
+    const boundedTargetIndex = Math.max(0, Math.min(targetIndex, energies.length))
+    const insertIndex = fromIndex < boundedTargetIndex ? boundedTargetIndex - 1 : boundedTargetIndex
+    if (fromIndex === insertIndex) return
+
+    pushHistory()
+    markInputChanged()
+    setEnergies((current) => {
+      const currentFromIndex = current.findIndex((energy) => energy.id === energyId)
+      if (currentFromIndex === -1) return current
+
+      const [moved] = current.slice(currentFromIndex, currentFromIndex + 1)
+      const withoutMoved = current.filter((_, index) => index !== currentFromIndex)
+      const currentTargetIndex = Math.max(0, Math.min(targetIndex, current.length))
+      const currentInsertIndex =
+        currentFromIndex < currentTargetIndex ? currentTargetIndex - 1 : currentTargetIndex
+
+      return [
+        ...withoutMoved.slice(0, currentInsertIndex),
+        moved,
+        ...withoutMoved.slice(currentInsertIndex),
+      ]
+    })
+  }
+
   function removeEnergy(id: number) {
     markInputChanged()
     setEnergies((current) => current.filter((energy) => energy.id !== id))
@@ -860,6 +888,7 @@ function App() {
             onRemoveEnergy={removeEnergy}
             onUpdateEnergy={updateEnergy}
             onDropEnergyToHand={dropEnergyToHand}
+            onReorderEnergyInHand={reorderEnergyInHand}
           />
           <GoalsSection lanes={lanes} laneSummaries={laneSummaries} onUpdateGoal={updateGoal} />
           <SolutionPanel

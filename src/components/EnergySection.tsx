@@ -18,6 +18,7 @@ type EnergySectionProps = {
   onRemoveEnergy: (id: number) => void
   onUpdateEnergy: (id: number, patch: Partial<Energy>) => void
   onDropEnergyToHand: (payload: DragPayload) => void
+  onReorderEnergyInHand: (energyId: number, targetIndex: number) => void
 }
 
 type DialogMode = 'add' | 'edit'
@@ -38,6 +39,7 @@ export function EnergySection({
   onRemoveEnergy,
   onUpdateEnergy,
   onDropEnergyToHand,
+  onReorderEnergyInHand,
 }: EnergySectionProps) {
   const [dialogMode, setDialogMode] = useState<DialogMode>('add')
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -75,8 +77,12 @@ export function EnergySection({
     event.preventDefault()
     setIsDragOver(false)
     const payload = parseDragPayload(event.dataTransfer.getData('text/plain'))
-    if (!payload || payload.type !== 'energy-slot') return
-    onDropEnergyToHand(payload)
+    if (!payload) return
+    if (payload.type === 'energy-slot') {
+      onDropEnergyToHand(payload)
+    } else if (payload.type === 'energy-hand') {
+      onReorderEnergyInHand(payload.energyId, energies.length)
+    }
   }
 
   return (
@@ -96,12 +102,12 @@ export function EnergySection({
         </div>
 
         <div className="energy-cards">
-          {energies.map((energy) => (
+          {energies.map((energy, energyIndex) => (
             <div
               key={energy.id}
               className={`energy-card ${energy.color}`}
               draggable
-              title={`${energy.color} ${energy.point}pt — drag to a unit slot`}
+              title={`${energy.color} ${energy.point}pt — drag to a unit slot or reorder in hand`}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData(
@@ -113,6 +119,19 @@ export function EnergySection({
                     point: energy.point,
                   } satisfies DragPayload),
                 )
+              }}
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                setIsDragOver(false)
+                const payload = parseDragPayload(event.dataTransfer.getData('text/plain'))
+                if (payload?.type === 'energy-hand') {
+                  onReorderEnergyInHand(payload.energyId, energyIndex)
+                }
               }}
               onClick={() => openEditDialog(energy)}
             >
