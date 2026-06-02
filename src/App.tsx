@@ -414,9 +414,34 @@ function App() {
     })
   }
 
+  function hasEnergyInHand(payload: Extract<DragPayload, { type: 'energy-hand' }>) {
+    return energies.some(
+      (energy) =>
+        energy.count > 0 &&
+        (energy.id === payload.energyId ||
+          (energy.color === payload.color && energy.point === payload.point)),
+    )
+  }
+
+  function consumeEnergyFromHand(current: Energy[], payload: Extract<DragPayload, { type: 'energy-hand' }>) {
+    const byId = current.findIndex((energy) => energy.id === payload.energyId && energy.count > 0)
+    const fallback = current.findIndex(
+      (energy) => energy.color === payload.color && energy.point === payload.point && energy.count > 0,
+    )
+    const idx = byId !== -1 ? byId : fallback
+    if (idx === -1) return current
+
+    return current
+      .map((energy, energyIndex) =>
+        energyIndex === idx ? { ...energy, count: energy.count - 1 } : energy,
+      )
+      .filter((energy) => energy.count > 0)
+  }
+
   // Drop energy from hand or another slot onto a unit slot
   function dropEnergyToSlot(payload: DragPayload, toLane: number, toCell: number, toSlot: number) {
     if (payload.type === 'unit') return
+    if (payload.type === 'energy-hand' && !hasEnergyInHand(payload)) return
 
     const targetCell = lanes[toLane]?.cells[toCell]
     if (!targetCell) return
@@ -482,10 +507,7 @@ function App() {
       let updated = [...current]
 
       if (payload.type === 'energy-hand') {
-        updated = updated.map((e) =>
-          e.id === payload.energyId ? { ...e, count: e.count - 1 } : e,
-        )
-        updated = updated.filter((e) => e.count > 0)
+        updated = consumeEnergyFromHand(updated, payload)
       }
 
       // Return displaced energy to hand if it can't swap back to source slot
@@ -694,6 +716,8 @@ function App() {
     }
 
     markInputChanged()
+    setUndoStack([])
+    setRedoStack([])
     setSelectedShipId(config.shipId ?? '')
     setLanes(restoredLanes)
     setEnergies(config.energies)
