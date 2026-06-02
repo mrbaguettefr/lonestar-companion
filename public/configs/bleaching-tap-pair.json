@@ -7,7 +7,7 @@
       "cells": [
         {
           "unitId": 11801,
-          "level": 1,
+          "level": 2,
           "loadedEnergy": [
             null,
             null
@@ -92,7 +92,7 @@
     },
     {
       "id": 3,
-      "color": "blue",
+      "color": "orange",
       "point": 2
     },
     {
@@ -102,7 +102,7 @@
     },
     {
       "id": 1780411769522,
-      "color": "orange",
+      "color": "blue",
       "point": 1
     }
   ]
