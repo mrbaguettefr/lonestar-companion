@@ -573,11 +573,17 @@ function App() {
 
   // ── Apply solver placements ────────────────────────────────────────────
 
-  function applyPlacements(placements: Placement[]) {
-    if (placements.length === 0) return
+  function applyPlacements(placements: Placement[], activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = []) {
+    if (placements.length === 0 && activations.length === 0) return
     pushHistory()
 
-    const replay = replayPlacements(lanes, energies, placements)
+    let currentEnergies = energies
+    for (const { unit } of activations) {
+      const result = triggerActivation(unit, currentEnergies)
+      if (result !== null) currentEnergies = result
+    }
+
+    const replay = replayPlacements(lanes, currentEnergies, placements)
     setLanes(replay.lanes)
     setEnergies(replay.energies)
   }
@@ -619,7 +625,13 @@ function App() {
     const solution = solvedResults[idx]
     if (!solution) return
 
-    const replay = replayPlacements(presolvedLanes, presolvedEnergies, solution.placements)
+    let energiesForReplay = presolvedEnergies
+    for (const { unit } of solution.activations) {
+      const result = triggerActivation(unit, energiesForReplay)
+      if (result !== null) energiesForReplay = result
+    }
+
+    const replay = replayPlacements(presolvedLanes, energiesForReplay, solution.placements)
     setLanes(replay.lanes)
     setEnergies(replay.energies)
     setLoadedSolutionIdx(idx)
@@ -857,7 +869,7 @@ function App() {
               setPresolvedActivationEnergyGenerated(activationEnergyGenerated)
               setSolvedResults(results)
               setLoadedSolutionIdx(displayedFirstIdx)
-              if (displayedFirst) applyPlacements(displayedFirst.placements)
+              if (displayedFirst) applyPlacements(displayedFirst.placements, displayedFirst.activations)
               setHasSolved(true)
             }}
             onClear={clearEnergies}
