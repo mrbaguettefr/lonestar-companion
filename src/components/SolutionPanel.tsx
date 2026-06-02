@@ -108,7 +108,8 @@ export function SolutionPanel({
                     {solverStrategy === 'best' && (
                       <span>Score: {solutionScore(result).toFixed(1)}</span>
                     )}
-                    <span>Cards: {result.stats.energiesUsed}</span>
+                    <span>Energy used: {result.stats.energiesUsed}</span>
+                    <span>Energy consumed: {result.stats.energyConsumed} pts</span>
                     <span>Strength: {result.stats.strengthGenerated}</span>
                     <span>Surplus: +{result.stats.damageDealt}</span>
                     {result.stats.energyGenerated > 0 && (
