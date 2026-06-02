@@ -151,6 +151,11 @@ export type RankedSolution = {
   stats: SolutionStats
 }
 
+type EvaluatedSolution = {
+  stats: SolutionStats
+  outcomeKey: string
+}
+
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
 /** Apply a placement list to a cloned lane array (non-mutating). */
@@ -168,11 +173,85 @@ function simulatePlacements(lanes: Lane[], placements: Placement[]): Lane[] {
   }))
 }
 
-function computeSolutionStats(
+function loadedEnergyOutcomeKey(unit: LaneUnit): string {
+  const loaded = unit.loadedEnergy
+    .map((energy, slotIndex) => energy ? { ...energy, slotIndex } : null)
+    .filter((energy): energy is LoadedEnergy & { slotIndex: number } => energy !== null)
+
+  if (unit.unitType === 'attack') {
+    return loaded
+      .map((energy) => `${energy.color}:${energy.point}`)
+      .sort()
+      .join(',')
+  }
+
+  return loaded
+    .map((energy) => `${energy.slotIndex}:${energy.color}:${energy.point}`)
+    .join(',')
+}
+
+function solutionOutcomeKey(
+  simLanes: Lane[],
+  summaries: LaneSummary[],
+  stats: SolutionStats,
+): string {
+  const laneKeys = simLanes.map((lane, laneIndex) => {
+    const summary = summaries[laneIndex]
+    const attackKeys: string[] = []
+    const positionedKeys: string[] = []
+
+    lane.cells.forEach((cell, cellIndex) => {
+      if (!cell) {
+        positionedKeys.push(`${cellIndex}:empty`)
+        return
+      }
+      const breakdown = summary.unitBreakdowns[cellIndex]
+      const cellKey = [
+        cell.unitId,
+        cell.level,
+        cell.unitType,
+        loadedEnergyOutcomeKey(cell),
+        breakdown.basePoints,
+        breakdown.staticPower,
+        breakdown.effectBonus,
+        breakdown.isDoubled ? 1 : 0,
+        breakdown.total,
+        breakdown.isManualOverride ? 1 : 0,
+      ].join(':')
+
+      if (cell.unitType === 'attack') {
+        attackKeys.push(cellKey)
+      } else {
+        positionedKeys.push(`${cellIndex}:${cellKey}`)
+      }
+    })
+
+    return [
+      summary.strength,
+      summary.deficit,
+      summary.surplus,
+      positionedKeys.join(';'),
+      attackKeys.sort().join(';'),
+    ].join('|')
+  })
+
+  return [
+    stats.damageReceived === 0 ? 1 : 0,
+    stats.energiesUsed,
+    stats.energyConsumed,
+    stats.strengthGenerated,
+    stats.damageDealt,
+    stats.damageReceived,
+    stats.energyGenerated,
+    laneKeys.join('||'),
+  ].join('#')
+}
+
+function evaluateSolution(
   lanes: Lane[],
   placements: Placement[],
   finalHandCount: number,
-): SolutionStats {
+): EvaluatedSolution {
   const simLanes = simulatePlacements(lanes, placements)
   const summaries = summarizeLanes(simLanes, { handEnergyCount: finalHandCount })
   const strengthGenerated = sum(summaries.map((s) => s.strength))
@@ -191,16 +270,18 @@ function computeSolutionStats(
     }
   }
 
-  return { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated }
+  const stats = { energiesUsed, energyConsumed, strengthGenerated, damageDealt, damageReceived, efficiencyRatio, energyGenerated }
+  return { stats, outcomeKey: solutionOutcomeKey(simLanes, summaries, stats) }
 }
 
 function toRanked(
   placements: Placement[],
   lanes: Lane[],
   totalHandCount: number,
+  evaluatedStats?: SolutionStats,
 ): RankedSolution {
   const finalHandCount = totalHandCount - placements.length
-  const stats = computeSolutionStats(lanes, placements, finalHandCount)
+  const stats = evaluatedStats ?? evaluateSolution(lanes, placements, finalHandCount).stats
   return {
     placements,
     possible: stats.damageReceived === 0,
@@ -398,6 +479,7 @@ function rankSolutions(
 ): RankedSolution[] {
   // Convert and deduplicate
   const seen = new Set<string>()
+  const seenOutcomes = new Set<string>()
   const ranked: RankedSolution[] = []
 
   for (const placements of rawSolutions) {
@@ -412,7 +494,12 @@ function rankSolutions(
 
     if (seen.has(key)) continue
     seen.add(key)
-    ranked.push(toRanked(placements, lanes, totalHandCount))
+
+    const finalHandCount = totalHandCount - placements.length
+    const evaluation = evaluateSolution(lanes, placements, finalHandCount)
+    if (seenOutcomes.has(evaluation.outcomeKey)) continue
+    seenOutcomes.add(evaluation.outcomeKey)
+    ranked.push(toRanked(placements, lanes, totalHandCount, evaluation.stats))
   }
 
   // Collect possible solutions first, then fill remaining slots with impossible ones
