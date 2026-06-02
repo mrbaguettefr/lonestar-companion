@@ -509,13 +509,14 @@ export function computeUnitStrength(unit: LaneUnit, ctx: EffectContext): UnitStr
     ? handler(unit, loaded, ctx)
     : { effectBonus: 0, isDoubled: false, effectLabel: unit.effect ? formatEffect(unit.effect, unit.args, unit.overclockThresholds) : null }
 
-  const raw = basePoints + staticPower + result.effectBonus
+  const activePower = loaded.length > 0 ? staticPower : 0
+  const raw = basePoints + activePower + result.effectBonus
   const total = result.isDoubled ? raw * 2 : raw
 
   return {
     cellIndex: ctx.cellIndex,
     basePoints,
-    staticPower,
+    staticPower: activePower,
     effectBonus: result.effectBonus,
     isDoubled: result.isDoubled,
     total,
