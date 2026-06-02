@@ -13,7 +13,8 @@
             null
           ],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 0,
+          "mods": []
         },
         {
           "unitId": 11001,
@@ -23,7 +24,8 @@
             null
           ],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 0,
+          "mods": []
         },
         null
       ]
@@ -39,14 +41,18 @@
             null
           ],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 0,
+          "mods": [
+            "power-plus-1"
+          ]
         },
         {
           "unitId": 12803,
           "level": 1,
           "loadedEnergy": [],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 0,
+          "mods": []
         },
         {
           "unitId": 13001,
@@ -56,7 +62,8 @@
             null
           ],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 0,
+          "mods": []
         }
       ]
     },
@@ -68,7 +75,8 @@
           "level": 1,
           "loadedEnergy": [],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 1,
+          "mods": []
         },
         {
           "unitId": 14001,
@@ -78,7 +86,8 @@
             null
           ],
           "manualPowerOverride": null,
-          "activateCount": 0
+          "activateCount": 0,
+          "mods": []
         },
         null
       ]
@@ -88,22 +97,32 @@
     {
       "id": 1,
       "color": "white",
-      "point": 3
+      "point": 4
     },
     {
-      "id": 3,
-      "color": "orange",
-      "point": 2
-    },
-    {
-      "id": 1780411761010.7068,
+      "id": 1780411769523,
       "color": "white",
       "point": 4
     },
     {
-      "id": 1780411769522,
-      "color": "blue",
-      "point": 1
+      "id": 1780436151823.5603,
+      "color": "orange",
+      "point": 2
+    },
+    {
+      "id": 1780436151823.9636,
+      "color": "white",
+      "point": 5
+    },
+    {
+      "id": 1780436151824.2268,
+      "color": "white",
+      "point": 2
+    },
+    {
+      "id": 1780436151824.5298,
+      "color": "white",
+      "point": 6
     }
   ]
 }
