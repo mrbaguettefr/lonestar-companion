@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { getLaneName } from '../lib/gameData'
-import { computeSolutionSteps, solutionScore, sortByStrategy, type RankedSolution, type SolverStrategy } from '../lib/solver'
-import type { Lane } from '../types/lonestar'
+import { computeSolutionSteps, sortByStrategy, type RankedSolution, type SolverStrategy } from '../lib/solver'
+import type { Energy, Lane } from '../types/lonestar'
 import { Button } from './ui/button'
+import { SolutionStatsRow } from './SolutionStatsRow'
 
 type SolutionPanelProps = {
   hasSolved: boolean
@@ -11,6 +12,7 @@ type SolutionPanelProps = {
   isPossible: boolean
   solverStrategy: SolverStrategy
   presolvedLanes: Lane[] | null
+  presolvedEnergies: Energy[] | null
   onStrategyChange: (s: SolverStrategy) => void
   onSolve: () => void
   onClear: () => void
@@ -24,6 +26,7 @@ export function SolutionPanel({
   isPossible,
   solverStrategy,
   presolvedLanes,
+  presolvedEnergies,
   onStrategyChange,
   onSolve,
   onClear,
@@ -66,7 +69,13 @@ export function SolutionPanel({
 
               const steps =
                 isExpanded && presolvedLanes
-                  ? computeSolutionSteps(presolvedLanes, result.placements, result.totalEnergyUsed + result.spareEnergy)
+                  ? computeSolutionSteps(
+                      presolvedLanes,
+                      result.placements,
+                      result.totalEnergyUsed + result.spareEnergy,
+                      presolvedEnergies ?? [],
+                      result.activations,
+                    )
                   : null
 
               return (
@@ -105,21 +114,10 @@ export function SolutionPanel({
                   </div>
 
                   <div className="solution-stats">
-                    {solverStrategy === 'best' && (
-                      <span>Score: {solutionScore(result).toFixed(1)}</span>
-                    )}
-                    <span>Energy used: {result.stats.energiesUsed}</span>
-                    <span>Energy consumed: {result.stats.energyConsumed} pts</span>
-                    <span>Strength: {result.stats.strengthGenerated}</span>
-                    <span>Surplus: +{result.stats.damageDealt}</span>
-                    {result.stats.energyGenerated > 0 && (
-                      <span>Generated: +{result.stats.energyGenerated}</span>
-                    )}
-                    {result.stats.damageReceived > 0 && (
-                      <span className="solution-stat--warn">
-                        Short: {result.stats.damageReceived}
-                      </span>
-                    )}
+                    <SolutionStatsRow
+                      stats={result.stats}
+                      solution={solverStrategy === 'best' ? result : undefined}
+                    />
                   </div>
 
                   {laneIndices.length > 0 && (
@@ -146,26 +144,41 @@ export function SolutionPanel({
                     <ol className="solution-steps">
                       {steps.map((step, si) => (
                         <li key={si} className="solution-step">
-                          <div className="step-action">
-                            {step.unitType === 'support' ? '⚙' : '⚔'}{' '}
-                            Load <strong>{step.placement.point}pt {step.placement.color}</strong> into{' '}
-                            <strong>{step.unitName}</strong>
-                            {' '}({getLaneName(step.placement.laneIndex)}, {step.slotColor} slot)
-                          </div>
-                          {step.generatedEnergies.length > 0 && (
-                            <div className="step-generated">
-                              → Generates:{' '}
-                              {step.generatedEnergies.map((g) => `${g.point}pt ${g.color}`).join(', ')}
-                            </div>
-                          )}
-                          {step.unitType === 'attack' && step.effectLabel && (
-                            <div className="step-effect">→ {step.effectLabel}</div>
-                          )}
-                          {step.unitType === 'attack' && step.laneGoal > 0 && (
-                            <div className={`step-strength${step.laneStrengthAfter >= step.laneGoal ? ' step-strength--met' : ''}`}>
-                              {getLaneName(step.placement.laneIndex)}: {step.laneStrengthAfter}/{step.laneGoal}
-                              {step.laneStrengthAfter >= step.laneGoal ? ' ✓' : ''}
-                            </div>
+                          {step.kind === 'activation' ? (
+                            <>
+                              <div className="step-action">
+                                ✨ Activate <strong>{step.unitName}</strong>{' '}
+                                ({getLaneName(step.laneIndex)})
+                              </div>
+                              <div className="step-generated">
+                                Hand: [{step.handBefore.map((e) => `${e.point}pt ${e.color}`).join(', ')}]{' '}
+                                → [{step.handAfter.map((e) => `${e.point}pt ${e.color}`).join(', ')}]
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="step-action">
+                                {step.unitType === 'support' ? '⚙' : '⚔'}{' '}
+                                Load <strong>{step.placement.point}pt {step.placement.color}</strong> into{' '}
+                                <strong>{step.unitName}</strong>
+                                {' '}({getLaneName(step.placement.laneIndex)}, {step.slotColor} slot)
+                              </div>
+                              {step.generatedEnergies.length > 0 && (
+                                <div className="step-generated">
+                                  → Generates:{' '}
+                                  {step.generatedEnergies.map((g) => `${g.point}pt ${g.color}`).join(', ')}
+                                </div>
+                              )}
+                              {step.unitType === 'attack' && step.effectLabel && (
+                                <div className="step-effect">→ {step.effectLabel}</div>
+                              )}
+                              {step.unitType === 'attack' && step.laneGoal > 0 && (
+                                <div className={`step-strength${step.laneStrengthAfter >= step.laneGoal ? ' step-strength--met' : ''}`}>
+                                  {getLaneName(step.placement.laneIndex)}: {step.laneStrengthAfter}/{step.laneGoal}
+                                  {step.laneStrengthAfter >= step.laneGoal ? ' ✓' : ''}
+                                </div>
+                              )}
+                            </>
                           )}
                         </li>
                       ))}

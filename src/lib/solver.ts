@@ -146,11 +146,18 @@ export type SolutionStats = {
 
 export type RankedSolution = {
   placements: Placement[]
+  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[]
   possible: boolean
   totalEnergyUsed: number
   remainingDeficit: number
   spareEnergy: number
   stats: SolutionStats
+}
+
+type CollectedSolution = {
+  placements: Placement[]
+  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[]
+  activatedEnergies: Energy[]
 }
 
 type EvaluatedSolution = {
@@ -230,6 +237,7 @@ export function evaluateCurrentBoard(
 
   return {
     placements,
+    activations: [],
     possible: damageReceived === 0,
     totalEnergyUsed: energiesUsed,
     remainingDeficit: damageReceived,
@@ -404,6 +412,7 @@ function toRanked(
   totalHandCount: number,
   evaluatedStats?: SolutionStats,
   finalHandCount?: number,
+  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = [],
 ): RankedSolution {
   const fallbackFinalHandCount = totalHandCount - placements.length
   const stats = evaluatedStats ?? (() => {
@@ -423,6 +432,7 @@ function toRanked(
   })()
   return {
     placements,
+    activations,
     possible: stats.damageReceived === 0,
     totalEnergyUsed: placements.length,
     remainingDeficit: stats.damageReceived,
@@ -611,7 +621,7 @@ export function sortByStrategy(solutions: RankedSolution[], strategy: SolverStra
 }
 
 function rankSolutions(
-  rawSolutions: Placement[][],
+  rawSolutions: CollectedSolution[],
   lanes: Lane[],
   energies: Energy[],
   totalHandCount: number,
@@ -622,7 +632,8 @@ function rankSolutions(
   const seenOutcomes = new Set<string>()
   const ranked: RankedSolution[] = []
 
-  for (const placements of rawSolutions) {
+  for (const collected of rawSolutions) {
+    const { placements, activations, activatedEnergies } = collected
     const key = [...placements]
       .sort((a, b) =>
         a.laneIndex !== b.laneIndex ? a.laneIndex - b.laneIndex :
@@ -635,10 +646,10 @@ function rankSolutions(
     if (seen.has(key)) continue
     seen.add(key)
 
-    const evaluation = evaluateSolution(lanes, placements, energies)
+    const evaluation = evaluateSolution(lanes, placements, activatedEnergies)
     if (seenOutcomes.has(evaluation.outcomeKey)) continue
     seenOutcomes.add(evaluation.outcomeKey)
-    ranked.push(toRanked(placements, lanes, totalHandCount, evaluation.stats, evaluation.finalHandCount))
+    ranked.push(toRanked(placements, lanes, totalHandCount, evaluation.stats, evaluation.finalHandCount, activations))
   }
 
   // Collect possible solutions first, then fill remaining slots with impossible ones
@@ -706,28 +717,31 @@ export function solveMultiple(
   })
 
   if (allSlots.length === 0 || basePool.length === 0) {
-    return [toRanked([], lanes, totalHandCount)]
+    return [toRanked([], lanes, totalHandCount, undefined, undefined, [])]
   }
 
   // Enumerate activatable units and try all subsets (each activated at most once).
   const activatable = collectActivatableUnits(lanes)
   const subsets = activatable.length <= 6 ? activationSubsets(activatable.length) : [[]]
 
-  const collector: Placement[][] = []
+  const collector: CollectedSolution[] = []
   const budget = { remaining: 50_000 }
 
   for (const subset of subsets) {
-    // Apply the chosen activations to the pool
+    // Apply the chosen activations to the pool, tracking which units were activated
     let pool: SearchCard[] = [...basePool]
+    const activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = []
     for (const idx of subset) {
-      const { unit } = activatable[idx]
+      const { unit, laneIndex, cellIndex } = activatable[idx]
       const modifiedEnergies = triggerActivation(unit, pool.reduce<Energy[]>((acc, c) => {
         return [...acc, { id: acc.length, color: c.color, point: c.point }]
       }, []))
       if (modifiedEnergies !== null) {
         pool = modifiedEnergies.map((e) => ({ color: e.color, point: e.point }))
+        activations.push({ unit, laneIndex, cellIndex })
       }
     }
+    const activatedEnergies: Energy[] = pool.map((c, i) => ({ id: i, color: c.color, point: c.point }))
 
     // Build mutable per-lane cell clones for this search pass
     const mutableLaneCells = new Map<number, (LaneUnit | null)[]>()
@@ -735,12 +749,18 @@ export function solveMultiple(
       mutableLaneCells.set(i, cloneLaneCells(lane.cells))
     }
 
-    searchGlobal(allSlots, 0, mutableLaneCells, pool, [], collector, budget, totalHandCount)
+    const subCollector: Placement[][] = []
+    searchGlobal(allSlots, 0, mutableLaneCells, pool, [], subCollector, budget, totalHandCount)
+    for (const placements of subCollector) {
+      collector.push({ placements, activations, activatedEnergies })
+    }
     if (budget.remaining <= 0) break
   }
 
   // Always include the empty solution as a baseline
-  if (!collector.some((p) => p.length === 0)) collector.push([])
+  if (!collector.some((c) => c.placements.length === 0)) {
+    collector.push({ placements: [], activations: [], activatedEnergies: energies })
+  }
 
   return rankSolutions(collector, lanes, energies, totalHandCount, max)
 }
@@ -808,7 +828,16 @@ export function previewUnitStrength(
 
 // ── Step-by-step solution guide ────────────────────────────────────────────
 
-export type SolutionStep = {
+export type ActivationSolutionStep = {
+  kind: 'activation'
+  unitName: string
+  laneIndex: number
+  handBefore: { color: string; point: number }[]
+  handAfter: { color: string; point: number }[]
+}
+
+export type PlacementSolutionStep = {
+  kind: 'placement'
   placement: Placement
   unitName: string
   unitType: 'attack' | 'support'
@@ -821,23 +850,45 @@ export type SolutionStep = {
   laneGoal: number
 }
 
+export type SolutionStep = ActivationSolutionStep | PlacementSolutionStep
+
 /**
  * Simulate a solution placement-by-placement and return annotated steps.
- * Support-unit loads come first (so generated energies appear before they are used).
+ * Activation steps (e.g. bleaching device) come first, then support loads, then attack loads.
  */
 export function computeSolutionSteps(
   lanes: Lane[],
   placements: Placement[],
   initialHandCount: number,
+  initialEnergies: Energy[] = [],
+  activations: { unit: LaneUnit; laneIndex: number; cellIndex: number }[] = [],
 ): SolutionStep[] {
-  if (placements.length === 0) return []
+  const steps: SolutionStep[] = []
+
+  // Emit activation steps first, simulating hand transforms.
+  let hand: Energy[] = initialEnergies.map((e) => ({ ...e }))
+  for (const { unit, laneIndex } of activations) {
+    const handBefore = hand.map((e) => ({ color: e.color, point: e.point }))
+    const result = triggerActivation(unit, hand)
+    if (result !== null) {
+      hand = result
+      steps.push({
+        kind: 'activation',
+        unitName: unit.name,
+        laneIndex,
+        handBefore,
+        handAfter: hand.map((e) => ({ color: e.color, point: e.point })),
+      })
+    }
+  }
+
+  if (placements.length === 0) return steps
 
   const replay = replayPlacements(lanes, [], placements)
   const simLanes: Lane[] = lanes.map((lane) => ({
     ...lane,
     cells: cloneLaneCells(lane.cells),
   }))
-  const steps: SolutionStep[] = []
 
   for (const replayStep of replay.steps) {
     const p = replayStep.placement
@@ -867,6 +918,7 @@ export function computeSolutionSteps(
     const laneStrength = summarizeLanes(simLanes, { handEnergyCount: initialHandCount })[p.laneIndex]?.strength ?? 0
 
     steps.push({
+      kind: 'placement',
       placement: p,
       unitName: cell.name,
       unitType: cell.unitType,

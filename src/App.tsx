@@ -863,6 +863,7 @@ function App() {
             onClear={clearEnergies}
             onLoadSolution={loadSolution}
             presolvedLanes={presolvedLanes}
+            presolvedEnergies={presolvedEnergies}
           />
         </>
       ) : (
